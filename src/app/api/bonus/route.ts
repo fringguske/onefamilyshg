@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/supabase";
 import { bonusPool, planBonus } from "@/lib/bonus";
-import { BONUS_CONFIRM_PHRASE } from "@/lib/ledger";
 import { actorName, check, getOpenPeriod, HttpError, readJson, requireUser, route, text } from "@/lib/server";
 
 export const dynamic = "force-dynamic";
@@ -23,17 +22,16 @@ export const GET = route(async () => {
 /**
  * Issue a bonus. Safety checks:
  *  - only from interest of rolled (locked) months, never more than the pool
- *  - the person must have previewed the exact shares and typed the confirmation phrase
+ *  - the person must have previewed the exact shares
  *  - shares are recalculated here; if anything changed since the preview, nothing is issued
  *  - recorded in the audit log; the administrator can void it while the month is open
  */
 export const POST = route(async (req: Request) => {
   const s = await requireUser();
   const body = await readJson<{
-    total?: number; method?: string; payout?: string; note?: string; confirm?: string;
+    total?: number; method?: string; payout?: string; note?: string;
     allocations?: { member_id: string; amount: number }[];
   }>(req);
-  if (body.confirm !== BONUS_CONFIRM_PHRASE) throw new HttpError(400, `Type ${BONUS_CONFIRM_PHRASE} to confirm.`);
   if (body.payout !== "savings" && body.payout !== "cash") throw new HttpError(400, "Choose how the bonus is paid.");
 
   const plan = await planBonus(body.total, body.method);

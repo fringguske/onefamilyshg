@@ -3,7 +3,6 @@ import { Fragment, useEffect, useState } from "react";
 import { MoneyInput } from "@/components/MoneyInput";
 import { Alert, Loading, Modal, Money, PageHeader, Stat } from "@/components/ui";
 import { api } from "@/lib/client";
-import { BONUS_CONFIRM_PHRASE } from "@/lib/ledger";
 import { centsToInput, formatMoney, parseMoney } from "@/lib/money";
 import { monthLabel } from "@/lib/period";
 import type { Period } from "@/lib/types";
@@ -27,7 +26,6 @@ export default function BonusPage() {
   const [payout, setPayout] = useState<"savings" | "cash">("savings");
   const [note, setNote] = useState("");
   const [preview, setPreview] = useState<Preview | null>(null);
-  const [confirm, setConfirm] = useState("");
   const [busy, setBusy] = useState(false);
   const [voiding, setVoiding] = useState<Bonus | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -40,7 +38,7 @@ export default function BonusPage() {
   useEffect(() => { load(); }, []);
 
   // any change to the inputs throws the preview away, so what is issued is exactly what was seen
-  useEffect(() => { setPreview(null); setConfirm(""); }, [amount, method]);
+  useEffect(() => { setPreview(null); }, [amount, method]);
 
   const cents = parseMoney(amount);
 
@@ -63,12 +61,12 @@ export default function BonusPage() {
     try {
       await api("/api/bonus", {
         body: {
-          total: preview.total, method: preview.method, payout, note, confirm,
+          total: preview.total, method: preview.method, payout, note,
           allocations: preview.allocations.map((a) => ({ member_id: a.member_id, amount: a.amount })),
         },
       });
       setSuccess(`Bonus of ${formatMoney(preview.total)} issued to ${preview.allocations.filter((a) => a.amount > 0).length} members.`);
-      setAmount(""); setNote(""); setPreview(null); setConfirm("");
+      setAmount(""); setNote(""); setPreview(null);
       await load();
     } catch (e) {
       setError((e as Error).message);
@@ -88,12 +86,6 @@ export default function BonusPage() {
       <section className="stats">
         <Stat strong label="Interest pool available" cents={info.pool} hint="From months that have been rolled, less bonuses already issued" />
       </section>
-
-      <Alert>
-        <strong>Safeguards:</strong> a bonus can only come from interest of months that have been rolled (locked), never more than the
-        pool. You must preview the exact share of every member and type <strong>{BONUS_CONFIRM_PHRASE}</strong> before it is issued.
-        Every bonus is recorded with who issued it. Only the administrator can cancel (void) a bonus, and only before the month is rolled.
-      </Alert>
 
       {!info.period ? (
         <Alert kind="warn">Start the books under Monthly records first.</Alert>
@@ -146,12 +138,8 @@ export default function BonusPage() {
                   </tfoot>
                 </table>
               </div>
-              <div className="field" style={{ maxWidth: 360 }}>
-                <label htmlFor="confirm">Type {BONUS_CONFIRM_PHRASE} to confirm</label>
-                <input id="confirm" value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="off" />
-              </div>
               <div>
-                <button className="btn btn-danger" disabled={busy || confirm !== BONUS_CONFIRM_PHRASE} onClick={issue}>
+                <button className="btn btn-danger" disabled={busy} onClick={issue}>
                   {busy ? "Issuing..." : `Issue bonus of ${formatMoney(preview.total)} (${payout === "savings" ? "to savings" : "cash"})`}
                 </button>
               </div>

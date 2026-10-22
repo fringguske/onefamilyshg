@@ -56,8 +56,8 @@ they are saved to the database. The browser also warns before leaving a page wit
 * A bonus can only come from interest of **rolled (locked) months**, minus bonuses already issued. A later correction
   to the open month can therefore never leave a bonus larger than the pool.
 * The bonus can never be more than that pool. The database refuses it.
-* The person must **preview** every member's share and type **ISSUE BONUS** to confirm. If anything changed after the
-  preview, nothing is issued.
+* The person must **preview** every member's share before issuing. If anything changed after the preview, nothing is
+  issued.
 * Every bonus records who issued it. Only the **administrator** can void a bonus, and only before its month is rolled.
 
 ## Setup
