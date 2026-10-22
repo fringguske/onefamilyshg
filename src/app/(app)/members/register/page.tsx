@@ -93,8 +93,7 @@ export default function RegisterPage() {
         </div>
         <h3>Opening balances</h3>
         <p className="small muted">
-          Only for a member who already has money in the group. Leave empty for a new member. These become their
-          balances brought forward in their first month, and can be corrected on the member&apos;s page until that month is rolled.
+          Only for a member who already has money in the group. Leave empty for a new member.
         </p>
         <div className="grid-form">
           <div className="field"><label htmlFor="os">Savings already held</label><MoneyInput id="os" value={form.savings} onChange={set("savings")} /></div>

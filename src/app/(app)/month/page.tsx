@@ -5,7 +5,7 @@ import { MoneyInput } from "@/components/MoneyInput";
 import { Alert, Loading, Modal, Money, PageHeader } from "@/components/ui";
 import { api, readStore, useUnsavedWarning, writeStore } from "@/lib/client";
 import { computeEntry, interestDue, MANUAL_FIELDS, type ManualInputs, type Openings } from "@/lib/ledger";
-import { centsToInput, formatMoney, formatPercent, parseMoney } from "@/lib/money";
+import { centsToInput, formatMoney, parseMoney } from "@/lib/money";
 import { MONTH_NAMES, monthLabel, nextMonth } from "@/lib/period";
 import type { EntryRow, Period } from "@/lib/types";
 
@@ -95,8 +95,6 @@ function MonthPage() {
 
   const dirtyIds = Object.keys(drafts);
   useUnsavedWarning(dirtyIds.length > 0);
-
-  const rates = data?.rates ?? { loan_rate_bps: 1000, advance_rate_bps: 1000 };
 
   /** Combines the stored record with any draft into what the row shows now. */
   const view = useCallback(
@@ -225,7 +223,7 @@ function MonthPage() {
         title={`Monthly records: ${label}`}
         subtitle={
           editable ? (
-            <>Feed what each member brought. Interest is deducted first, then repayments; the balance goes to savings. <span className="badge badge-open">Open</span></>
+            <span className="badge badge-open">Open</span>
           ) : (
             <>This month has been rolled and is locked. <span className="badge badge-closed">Rolled {period.closed_at?.slice(0, 10)}</span></>
           )
@@ -321,9 +319,6 @@ function MonthPage() {
                     <div className="no">
                       No. {row.member.member_no}
                       {row.member.status !== "active" && ", inactive"}
-                      {editable && row.is_first && (
-                        <>, first month: b/f is their <a href={`/members/${row.member_id}`}>opening balances</a></>
-                      )}
                     </div>
                     {err && <div className="row-errors">{err}</div>}
                     {v.conflict && (
@@ -391,10 +386,6 @@ function MonthPage() {
           )}
         </table>
       </div>
-      <p className="small muted">
-        Interest due = {formatPercent(rates.loan_rate_bps)}% of the loan b/f + {formatPercent(rates.advance_rate_bps)}% of the advance b/f, plus any interest left unpaid
-        from earlier months. Interest goes to the group pool (see Group summary). Press Enter in a row to save it.
-      </p>
 
       {rollOpen && editable && (
         <RollDialog
