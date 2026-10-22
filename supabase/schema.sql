@@ -61,6 +61,11 @@ create table if not exists members (
   created_at             timestamptz not null default now(),
   created_by             text
 );
+-- Balances an existing member brings into the system. Used as the balances b/f
+-- of their first month only; after that the roll carries everything.
+alter table members add column if not exists opening_savings_cents bigint not null default 0 check (opening_savings_cents >= 0);
+alter table members add column if not exists opening_loan_cents    bigint not null default 0 check (opening_loan_cents >= 0);
+alter table members add column if not exists opening_advance_cents bigint not null default 0 check (opening_advance_cents >= 0);
 
 -- ---------------------------------------------------------------------
 -- Months (the group meets once a month). Only one month is open at a time.
@@ -252,8 +257,19 @@ begin
     raise exception 'The books have already been started.';
   end if;
   insert into periods (year, month) values (p_year, p_month) returning id into pid;
-  insert into member_entries (period_id, member_id)
-    select pid, id from members where status = 'active';
+  -- first month: balances b/f are each member's opening balances
+  insert into member_entries (
+    period_id, member_id, savings_open, loan_bal_open, advance_bal_open,
+    loan_interest_charged, advance_interest_charged,
+    savings_close, loan_bal_close, advance_bal_close, loan_interest_arrears, advance_interest_arrears)
+  select pid, m.id, m.opening_savings_cents, m.opening_loan_cents, m.opening_advance_cents,
+         x.li, x.ai,
+         m.opening_savings_cents, m.opening_loan_cents, m.opening_advance_cents, x.li, x.ai
+  from members m
+  cross join settings s
+  cross join lateral (select interest_on(m.opening_loan_cents, s.loan_rate_bps)       as li,
+                             interest_on(m.opening_advance_cents, s.advance_rate_bps) as ai) x
+  where m.status = 'active' and s.id = 1;
   insert into audit_log (actor, action, details)
     values (p_actor, 'start_books', jsonb_build_object('year', p_year, 'month', p_month));
   return pid;

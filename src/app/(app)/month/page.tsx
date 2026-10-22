@@ -4,19 +4,17 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { MoneyInput } from "@/components/MoneyInput";
 import { Alert, Loading, Modal, Money, PageHeader } from "@/components/ui";
 import { api, readStore, useUnsavedWarning, writeStore } from "@/lib/client";
-import { computeEntry, interestDue, interestOn, MANUAL_FIELDS, OPENING_FIELDS, type ManualInputs, type Openings } from "@/lib/ledger";
+import { computeEntry, interestDue, MANUAL_FIELDS, type ManualInputs, type Openings } from "@/lib/ledger";
 import { centsToInput, formatMoney, formatPercent, parseMoney } from "@/lib/money";
 import { MONTH_NAMES, monthLabel, nextMonth } from "@/lib/period";
 import type { EntryRow, Period } from "@/lib/types";
 
 type ManualKey = (typeof MANUAL_FIELDS)[number];
-type OpeningKey = (typeof OPENING_FIELDS)[number];
 
 /** Unsaved typing for one member, kept in the browser until it is saved. */
 interface Draft {
   base: number; // the record version the draft was started from
   f: Record<ManualKey, string>;
-  o?: Record<OpeningKey, string>;
 }
 type Drafts = Record<string, Draft>;
 
@@ -119,27 +117,14 @@ function MonthPage() {
         loan_interest_charged: row.loan_interest_charged, advance_interest_charged: row.advance_interest_charged,
         bonus_credit: row.bonus_credit,
       };
-      const openText = {} as Record<OpeningKey, string>;
-      for (const k of OPENING_FIELDS) {
-        openText[k] = d?.o ? d.o[k] : centsToInput(row[k]);
-        if (d?.o) {
-          const c = parseMoney(d.o[k]);
-          if (c === null) invalid = true;
-          openings[k] = c ?? 0;
-        }
-      }
-      if (d?.o) {
-        openings.loan_interest_charged = interestOn(openings.loan_bal_open, rates.loan_rate_bps);
-        openings.advance_interest_charged = interestOn(openings.advance_bal_open, rates.advance_rate_bps);
-      }
       const { computed, errors } = computeEntry(openings, inputs);
       if (invalid) errors.unshift("One of the amounts is not a valid number (use digits, up to 2 decimals).");
-      return { text, openText, inputs, openings, computed, errors, draft: d, conflict: !!d && d.base !== row.version };
+      return { text, inputs, openings, computed, errors, draft: d, conflict: !!d && d.base !== row.version };
     },
-    [drafts, rates.loan_rate_bps, rates.advance_rate_bps],
+    [drafts],
   );
 
-  function edit(row: EntryRow, field: ManualKey | OpeningKey, value: string, opening = false) {
+  function edit(row: EntryRow, field: ManualKey, value: string) {
     setJustSaved((s) => ({ ...s, [row.id]: false }));
     setDrafts((all) => {
       const cur: Draft = all[row.id] ?? {
@@ -147,16 +132,9 @@ function MonthPage() {
         f: Object.fromEntries(MANUAL_FIELDS.map((k) => [k, centsToInput(row[k])])) as Record<ManualKey, string>,
       };
       const next: Draft = { ...cur, f: { ...cur.f } };
-      if (opening) {
-        next.o = { ...(cur.o ?? (Object.fromEntries(OPENING_FIELDS.map((k) => [k, centsToInput(row[k])])) as Record<OpeningKey, string>)) };
-        next.o[field as OpeningKey] = value;
-      } else {
-        next.f[field as ManualKey] = value;
-      }
+      next.f[field] = value;
       // a draft that matches the saved record is not a draft any more
-      const same =
-        MANUAL_FIELDS.every((k) => parseMoney(next.f[k]) === row[k]) &&
-        (!next.o || OPENING_FIELDS.every((k) => parseMoney(next.o![k]) === row[k]));
+      const same = MANUAL_FIELDS.every((k) => parseMoney(next.f[k]) === row[k]);
       const copy = { ...all };
       if (same && next.base === row.version) delete copy[row.id];
       else copy[row.id] = next;
@@ -186,7 +164,6 @@ function MonthPage() {
       const body = {
         version: v.draft.base,
         inputs: v.inputs,
-        openings: v.draft.o ? Object.fromEntries(OPENING_FIELDS.map((k) => [k, v.openings[k]])) : null,
         notes: row.notes,
       };
       const { row: saved } = await api<{ row: EntryRow }>(`/api/entries/${row.id}`, { method: "PUT", body });
@@ -319,7 +296,6 @@ function MonthPage() {
               const v = view(row);
               const due = interestDue(v.openings);
               const err = rowErrors[row.id] || (v.draft ? v.errors.join(" ") : "");
-              const canEditOpenings = editable && row.is_first;
               const money = (k: ManualKey, lbl: string) => (
                 <td className="num" data-label={lbl}>
                   {editable ? (
@@ -329,13 +305,9 @@ function MonthPage() {
                   )}
                 </td>
               );
-              const opening = (k: OpeningKey, lbl: string) => (
-                <td className={`num${canEditOpenings ? "" : " auto"}`} data-label={lbl}>
-                  {canEditOpenings ? (
-                    <MoneyInput label={`${lbl}, ${row.member.full_name}`} value={v.openText[k]} onChange={(x) => edit(row, k, x, true)} />
-                  ) : (
-                    <Money cents={v.openings[k]} />
-                  )}
+              const bf = (k: "savings_open" | "loan_bal_open" | "advance_bal_open", lbl: string) => (
+                <td className="num auto" data-label={lbl}>
+                  <Money cents={v.openings[k]} />
                 </td>
               );
               return (
@@ -349,7 +321,9 @@ function MonthPage() {
                     <div className="no">
                       No. {row.member.member_no}
                       {row.member.status !== "active" && ", inactive"}
-                      {canEditOpenings && ", first month: type balances b/f"}
+                      {editable && row.is_first && (
+                        <>, first month: b/f is their <a href={`/members/${row.member_id}`}>opening balances</a></>
+                      )}
                     </div>
                     {err && <div className="row-errors">{err}</div>}
                     {v.conflict && (
@@ -360,9 +334,9 @@ function MonthPage() {
                       </div>
                     )}
                   </td>
-                  {opening("savings_open", "Savings b/f")}
-                  {opening("loan_bal_open", "Loan b/f")}
-                  {opening("advance_bal_open", "Advance b/f")}
+                  {bf("savings_open", "Savings b/f")}
+                  {bf("loan_bal_open", "Loan b/f")}
+                  {bf("advance_bal_open", "Advance b/f")}
                   <td className="num auto" data-label="Interest due" title={due.total ? `Loan ${formatMoney(due.loan)} + advance ${formatMoney(due.advance)}` : undefined}>
                     <Money cents={due.total} dashZero />
                   </td>
@@ -520,7 +494,7 @@ function StartBooks({ onStarted }: { onStarted: () => void }) {
       <div className="card">
         <h2>Start the books</h2>
         <p>Choose the first month you will feed into the system. Register the members first; anyone registered later is added automatically.</p>
-        <p className="muted small">For members who already have savings, loans or advances, you will type their balances b/f in this first month.</p>
+        <p className="muted small">For members who already have savings, loans or advances, enter their opening balances on the Registration form or the member&apos;s page before you start. They become the balances b/f of the first month.</p>
         {error && <Alert kind="error">{error}</Alert>}
         <div className="row">
           <select value={month} onChange={(e) => setMonth(Number(e.target.value))} aria-label="Month">

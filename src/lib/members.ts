@@ -2,6 +2,8 @@ import "server-only";
 import { isCents } from "./money";
 import { HttpError, text } from "./server";
 
+export const OPENING_COLUMNS = ["opening_savings_cents", "opening_loan_cents", "opening_advance_cents"] as const;
+
 /** Validates member fields from a request body. */
 export function memberFields(body: Record<string, unknown>, isNew: boolean) {
   const out: Record<string, unknown> = {};
@@ -25,6 +27,14 @@ export function memberFields(body: Record<string, unknown>, isNew: boolean) {
   if (isNew || "registration_fee_cents" in body) {
     if (!isCents(body.registration_fee_cents)) throw new HttpError(400, "Enter a valid registration fee.");
     out.registration_fee_cents = body.registration_fee_cents;
+  }
+  // balances an existing member brings in; set at registration, changed later only via /opening
+  if (isNew) {
+    for (const k of OPENING_COLUMNS) {
+      const v = body[k] ?? 0;
+      if (!isCents(v)) throw new HttpError(400, "One of the opening balances is not valid.");
+      out[k] = v;
+    }
   }
   if ("status" in body) {
     if (body.status !== "active" && body.status !== "inactive") throw new HttpError(400, "Invalid status.");

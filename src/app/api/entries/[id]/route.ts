@@ -1,21 +1,20 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/supabase";
-import { computeEntry, interestOn, MANUAL_FIELDS, OPENING_FIELDS, type ManualInputs, type Openings } from "@/lib/ledger";
+import { computeEntry, MANUAL_FIELDS, type ManualInputs, type Openings } from "@/lib/ledger";
 import { isCents } from "@/lib/money";
-import { audit, check, getSettings, HttpError, readJson, requireUser, route, text } from "@/lib/server";
+import { audit, check, HttpError, readJson, requireUser, route, text } from "@/lib/server";
 
 type Ctx = { params: Promise<{ id: string }> };
 interface Body {
   version?: number;
   inputs?: Record<string, unknown>;
-  openings?: Record<string, unknown> | null;
   notes?: string | null;
 }
 
 /**
- * Save one member's record for the open month. The server recalculates
- * everything from the stored balances b/f; only the manual fields are taken
- * from the browser.
+ * Save one member's record for the open month. Only the manual fields are
+ * taken from the browser; balances b/f come from the database (the roll, or
+ * the member's opening balances) and can never be changed here.
  */
 export const PUT = route(async (req: Request, { params }: Ctx) => {
   const s = await requireUser();
@@ -45,34 +44,13 @@ export const PUT = route(async (req: Request, { params }: Ctx) => {
     bonus_credit: entry.bonus_credit,
   };
 
-  // Opening balances can only be typed in a member's first month (moving an
-  // existing member's records into the system). After that the roll carries them.
-  if (body.openings) {
-    const { count } = await db()
-      .from("member_entries")
-      .select("id, periods!inner(seq)", { count: "exact", head: true })
-      .eq("member_id", entry.member_id)
-      .lt("periods.seq", entry.period.seq);
-    if (count) throw new HttpError(422, "Balances b/f are carried by the roll and cannot be typed for this member.");
-    for (const k of OPENING_FIELDS) {
-      const v = body.openings[k] ?? 0;
-      if (!isCents(v)) throw new HttpError(400, "One of the opening balances is not valid.");
-      openings[k] = v;
-    }
-    const settings = await getSettings();
-    openings.loan_interest_charged = interestOn(openings.loan_bal_open, settings.loan_rate_bps);
-    openings.advance_interest_charged = interestOn(openings.advance_bal_open, settings.advance_rate_bps);
-  }
-
   const { computed, errors } = computeEntry(openings, inputs);
   if (errors.length) throw new HttpError(422, errors.join(" "));
 
-  const { bonus_credit: _unchanged, ...openingColumns } = openings;
   const saved = check(
     await db()
       .from("member_entries")
       .update({
-        ...openingColumns,
         ...inputs,
         ...computed,
         notes: text(body.notes, 300),
@@ -91,7 +69,7 @@ export const PUT = route(async (req: Request, { params }: Ctx) => {
   }
 
   const changed = Object.fromEntries(
-    [...MANUAL_FIELDS, ...(body.openings ? OPENING_FIELDS : [])]
+    MANUAL_FIELDS
       .filter((k) => entry[k] !== saved[k])
       .map((k) => [k, { from: entry[k], to: saved[k] }]),
   );

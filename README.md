@@ -111,11 +111,14 @@ npm test                     # accounting rules tests
 1. Sign in as the administrator and create the chairman's account (**Settings**).
 2. Check the interest rates and the registration fee. If the group already has money, enter the **opening cash** and
    any **interest pool brought in**.
-3. **Register** all members.
+3. **Register** all members. For a member who already has money in the group, fill in the **Opening balances**
+   section of the form (savings held, loan and advance still owed).
 4. Open **Monthly records** and **start the books** with the first month.
-5. In that first month, type each existing member's **savings, loan and advance balances b/f**. These boxes are
-   editable only in a member's first month; after that the roll carries the balances.
-6. Feed the month, save, and **Roll** when the meeting's records are complete.
+5. Feed the month, save, and **Roll** when the meeting's records are complete.
+
+The brought-forward columns on Monthly records are never typed. In a member's first month they are the opening
+balances; after that the roll fills them in. Opening balances can be corrected on the member's page until their first
+month is rolled, and are locked after that.
 
 If a month was rolled by mistake, the administrator can **Undo last roll** (Settings), as long as nothing has been fed
 in the new month yet.

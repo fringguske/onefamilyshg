@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/supabase";
+import { ensureOpenEntries } from "@/lib/entries";
 import { check, getSettings, HttpError, requireUser, route } from "@/lib/server";
 import type { EntryRow, Period } from "@/lib/types";
 
@@ -21,20 +22,8 @@ export const GET = route(async (req: Request) => {
     return NextResponse.json({ period: null, rows: [] });
   }
 
-  if (period.status === "open") {
-    // every active member must have a row in the open month
-    const active = check(await db().from("members").select("id").eq("status", "active"));
-    if (active.length) {
-      check(
-        await db()
-          .from("member_entries")
-          .upsert(
-            active.map((m: { id: string }) => ({ period_id: period.id, member_id: m.id, updated_by: s.username })),
-            { onConflict: "period_id,member_id", ignoreDuplicates: true },
-          ),
-      );
-    }
-  }
+  // every active member must have a row in the open month
+  if (period.status === "open") await ensureOpenEntries(s.username);
 
   const [entries, earlier, settings] = await Promise.all([
     db()

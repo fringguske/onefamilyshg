@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/supabase";
 import { memberFields } from "@/lib/members";
-import { audit, check, getOpenPeriod, readJson, requireUser, route } from "@/lib/server";
+import { audit, check, readJson, requireUser, route } from "@/lib/server";
+import { ensureOpenEntries } from "@/lib/entries";
 import type { MemberListItem } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -44,11 +45,9 @@ export const POST = route(async (req: Request) => {
   const row = memberFields(body, true);
   const member = check(await db().from("members").insert({ ...row, created_by: s.username }).select().single());
 
-  // the new member appears in the month that is being fed right now
-  const open = await getOpenPeriod();
-  if (open) {
-    check(await db().from("member_entries").insert({ period_id: open.id, member_id: member.id, updated_by: s.username }));
-  }
+  // the new member appears in the month that is being fed right now,
+  // starting from their opening balances
+  await ensureOpenEntries(s.username, [member.id]);
   await audit(s, "member_registered", { member_id: member.id, member_no: member.member_no, ...row });
   return NextResponse.json({ member });
 });

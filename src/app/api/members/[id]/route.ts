@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/supabase";
-import { audit, check, getOpenPeriod, HttpError, readJson, requireUser, route } from "@/lib/server";
+import { audit, check, HttpError, readJson, requireUser, route } from "@/lib/server";
+import { ensureOpenEntries } from "@/lib/entries";
 import { memberFields } from "@/lib/members";
 
 export const dynamic = "force-dynamic";
@@ -22,7 +23,9 @@ export const GET = route(async (_req: Request, { params }: Ctx) => {
       .select("amount_cents, bonus:bonus_issues!inner(id, issued_at, payout, voided_at, note)")
       .eq("member_id", id),
   );
-  return NextResponse.json({ member, entries, bonuses });
+  // opening balances can be changed until the member's first month is rolled
+  const opening_editable = !entries.some((e: { period: { status: string } }) => e.period.status === "closed");
+  return NextResponse.json({ member, entries, bonuses, opening_editable });
 });
 
 /** Edit member details (chairman or administrator). */
@@ -35,16 +38,7 @@ export const PATCH = route(async (req: Request, { params }: Ctx) => {
   const changes = memberFields(body, false);
   const member = check(await db().from("members").update(changes).eq("id", id).select().single());
 
-  if (member.status === "active") {
-    const open = await getOpenPeriod();
-    if (open) {
-      check(
-        await db()
-          .from("member_entries")
-          .upsert({ period_id: open.id, member_id: id, updated_by: s.username }, { onConflict: "period_id,member_id", ignoreDuplicates: true }),
-      );
-    }
-  }
+  if (member.status === "active") await ensureOpenEntries(s.username, [id]);
   const diff = Object.fromEntries(
     Object.entries(changes).filter(([k, v]) => before[k] !== v).map(([k, v]) => [k, { from: before[k], to: v }]),
   );

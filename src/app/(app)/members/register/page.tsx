@@ -8,7 +8,7 @@ import { centsToInput, formatMoney, parseMoney } from "@/lib/money";
 import type { Settings } from "@/lib/types";
 
 const today = () => new Date().toISOString().slice(0, 10);
-const EMPTY = { full_name: "", phone: "", national_id: "", joined_on: "", fee: "", notes: "" };
+const EMPTY = { full_name: "", phone: "", national_id: "", joined_on: "", fee: "", notes: "", savings: "", loan: "", advance: "" };
 
 export default function RegisterPage() {
   // the form is kept in the browser, so nothing is lost if you leave the page halfway
@@ -31,6 +31,8 @@ export default function RegisterPage() {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (fee === null) return setError("The registration fee is not a valid amount.");
+    const opening = { savings: parseMoney(form.savings), loan: parseMoney(form.loan), advance: parseMoney(form.advance) };
+    if (Object.values(opening).some((v) => v === null)) return setError("One of the opening balances is not a valid amount.");
     setBusy(true);
     setError("");
     try {
@@ -38,6 +40,7 @@ export default function RegisterPage() {
         body: {
           full_name: form.full_name, phone: form.phone, national_id: form.national_id, notes: form.notes,
           joined_on: form.joined_on || today(), registration_fee_cents: fee,
+          opening_savings_cents: opening.savings, opening_loan_cents: opening.loan, opening_advance_cents: opening.advance,
         },
       });
       clearForm();
@@ -88,10 +91,16 @@ export default function RegisterPage() {
           <label htmlFor="notes">Notes</label>
           <textarea id="notes" rows={2} value={form.notes} onChange={(e) => set("notes")(e.target.value)} />
         </div>
+        <h3>Opening balances</h3>
         <p className="small muted">
-          Moving an existing member into the system? Register them here, then type their savings, loan and advance
-          balances b/f in their first month under Monthly records.
+          Only for a member who already has money in the group. Leave empty for a new member. These become their
+          balances brought forward in their first month, and can be corrected on the member&apos;s page until that month is rolled.
         </p>
+        <div className="grid-form">
+          <div className="field"><label htmlFor="os">Savings already held</label><MoneyInput id="os" value={form.savings} onChange={set("savings")} /></div>
+          <div className="field"><label htmlFor="ol">Loan balance still owed</label><MoneyInput id="ol" value={form.loan} onChange={set("loan")} /></div>
+          <div className="field"><label htmlFor="oa">Advance balance still owed</label><MoneyInput id="oa" value={form.advance} onChange={set("advance")} /></div>
+        </div>
         <div className="row">
           <button className="btn" disabled={busy || !form.full_name.trim()}>{busy ? "Saving..." : "Register member"}</button>
           {dirty && <button type="button" className="btn btn-secondary" onClick={clearForm}>Clear form</button>}

@@ -11,17 +11,19 @@ import type { EntryRow } from "@/lib/types";
 interface Member {
   id: string; member_no: number; full_name: string; phone: string | null; national_id: string | null; joined_on: string;
   registration_fee_cents: number; status: "active" | "inactive"; notes: string | null; created_at: string;
+  opening_savings_cents: number; opening_loan_cents: number; opening_advance_cents: number;
 }
+type Detail = { member: Member; entries: HistoryRow[]; bonuses: BonusRow[]; opening_editable: boolean };
 type HistoryRow = Omit<EntryRow, "member" | "is_first"> & { period: { id: string; year: number; month: number; seq: number; status: string } };
 interface BonusRow { amount_cents: number; bonus: { id: string; issued_at: string; payout: string; voided_at: string | null; note: string | null } }
 
 export default function MemberPage() {
   const { id } = useParams<{ id: string }>();
-  const [data, setData] = useState<{ member: Member; entries: HistoryRow[]; bonuses: BonusRow[] } | null>(null);
+  const [data, setData] = useState<Detail | null>(null);
   const [error, setError] = useState("");
   const [editing, setEditing] = useState(false);
 
-  const load = () => api<{ member: Member; entries: HistoryRow[]; bonuses: BonusRow[] }>(`/api/members/${id}`).then(setData, (e) => setError(e.message));
+  const load = () => api<Detail>(`/api/members/${id}`).then(setData, (e) => setError(e.message));
   useEffect(() => { load(); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (error && !data) return <Alert kind="error">{error}</Alert>;
@@ -41,6 +43,7 @@ export default function MemberPage() {
         actions={!editing && <button className="btn btn-secondary" onClick={() => setEditing(true)}>Edit details</button>}
       />
       {editing && <EditMember member={m} onDone={(saved) => { setEditing(false); if (saved) load(); }} />}
+      <OpeningBalances member={m} editable={data.opening_editable} onSaved={load} />
 
       <section className="stats">
         <div className="stat stat-strong"><div className="stat-label">Savings</div><div className="stat-value num"><Money cents={latest?.savings_close ?? 0} /></div></div>
@@ -171,6 +174,74 @@ function EditMember({ member, onDone }: { member: Member; onDone: (saved: boolea
         <button className="btn" disabled={busy}>{busy ? "Saving..." : "Save changes"}</button>
         <button type="button" className="btn btn-secondary" onClick={() => onDone(false)}>Cancel</button>
       </div>
+    </form>
+  );
+}
+
+function OpeningBalances({ member, editable, onSaved }: { member: Member; editable: boolean; onSaved: () => void }) {
+  const initial = {
+    savings: centsToInput(member.opening_savings_cents),
+    loan: centsToInput(member.opening_loan_cents),
+    advance: centsToInput(member.opening_advance_cents),
+  };
+  const [f, setF] = useState(initial);
+  const [editing, setEditing] = useState(false);
+  const [msg, setMsg] = useState<{ kind: "error" | "success"; text: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const any = member.opening_savings_cents + member.opening_loan_cents + member.opening_advance_cents > 0;
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    const v = { savings: parseMoney(f.savings), loan: parseMoney(f.loan), advance: parseMoney(f.advance) };
+    if (Object.values(v).some((x) => x === null)) return setMsg({ kind: "error", text: "One of the amounts is not valid." });
+    setBusy(true);
+    try {
+      await api(`/api/members/${member.id}/opening`, {
+        method: "PUT",
+        body: { opening_savings_cents: v.savings, opening_loan_cents: v.loan, opening_advance_cents: v.advance },
+      });
+      setMsg({ kind: "success", text: "Opening balances saved. Their first month has been recalculated." });
+      setEditing(false);
+      onSaved();
+    } catch (err) {
+      setMsg({ kind: "error", text: (err as Error).message });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!editable && !any) return null;
+  return (
+    <form className="card" onSubmit={save}>
+      <div className="row">
+        <h2 style={{ margin: 0 }}>Opening balances</h2>
+        <span className="spacer" />
+        {editable && !editing && <button type="button" className="btn btn-secondary btn-small" onClick={() => { setF(initial); setEditing(true); }}>Change</button>}
+      </div>
+      <p className="small muted" style={{ marginTop: 6 }}>
+        {editable
+          ? "What this member already had when they were brought into the system. These are the balances b/f of their first month, and can be changed until that month is rolled."
+          : "What this member already had when they were brought into the system. Their first month has been rolled, so these are locked."}
+      </p>
+      {msg && <Alert kind={msg.kind}>{msg.text}</Alert>}
+      {editing ? (
+        <>
+          <div className="grid-form">
+            <div className="field"><label>Savings already held</label><MoneyInput value={f.savings} onChange={(x) => setF({ ...f, savings: x })} /></div>
+            <div className="field"><label>Loan balance still owed</label><MoneyInput value={f.loan} onChange={(x) => setF({ ...f, loan: x })} /></div>
+            <div className="field"><label>Advance balance still owed</label><MoneyInput value={f.advance} onChange={(x) => setF({ ...f, advance: x })} /></div>
+          </div>
+          <div className="row">
+            <button className="btn" disabled={busy}>{busy ? "Saving..." : "Save opening balances"}</button>
+            <button type="button" className="btn btn-secondary" onClick={() => setEditing(false)}>Cancel</button>
+          </div>
+        </>
+      ) : (
+        <p>
+          Savings <Money cents={member.opening_savings_cents} /> | Loan <Money cents={member.opening_loan_cents} /> | Advance{" "}
+          <Money cents={member.opening_advance_cents} />
+        </p>
+      )}
     </form>
   );
 }

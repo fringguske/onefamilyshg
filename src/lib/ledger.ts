@@ -40,7 +40,6 @@ export interface Computed {
 export const BONUS_CONFIRM_PHRASE = "ISSUE BONUS";
 
 export const MANUAL_FIELDS = ["amount_paid", "loan_repaid", "advance_repaid", "loan_issued", "advance_issued"] as const;
-export const OPENING_FIELDS = ["savings_open", "loan_bal_open", "advance_bal_open"] as const;
 
 /** rate x balance, rounded half-up to the cent. Same formula as interest_on() in SQL. */
 export function interestOn(balanceCents: number, rateBps: number): number {
