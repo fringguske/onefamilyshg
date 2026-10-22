@@ -37,7 +37,7 @@ export default function MemberPage() {
     <div className="stack">
       <PageHeader
         title={m.full_name}
-        subtitle={<>Member no. {m.member_no} · joined {m.joined_on} · <span className={`badge ${m.status === "active" ? "badge-open" : "badge-closed"}`}>{m.status}</span></>}
+        subtitle={<>Member no. {m.member_no}, joined {m.joined_on} <span className={`badge ${m.status === "active" ? "badge-open" : "badge-closed"}`}>{m.status}</span></>}
         actions={!editing && <button className="btn btn-secondary" onClick={() => setEditing(true)}>Edit details</button>}
       />
       {editing && <EditMember member={m} onDone={(saved) => { setEditing(false); if (saved) load(); }} />}
@@ -48,7 +48,7 @@ export default function MemberPage() {
         <div className="stat stat-strong"><div className="stat-label">Advance balance</div><div className="stat-value num"><Money cents={latest?.advance_bal_close ?? 0} /></div></div>
         <div className="stat"><div className="stat-label">Registration fee</div><div className="stat-value num"><Money cents={m.registration_fee_cents} /></div></div>
       </section>
-      <p className="small muted">Phone: {m.phone ?? "—"} · National ID: {m.national_id ?? "—"}{m.notes ? ` · ${m.notes}` : ""}</p>
+      <p className="small muted">Phone: {m.phone ?? "-"} | National ID: {m.national_id ?? "-"}{m.notes ? ` | ${m.notes}` : ""}</p>
 
       <section>
         <h2>Member transactions</h2>
@@ -168,7 +168,7 @@ function EditMember({ member, onDone }: { member: Member; onDone: (saved: boolea
       </div>
       <div className="field"><label>Notes</label><textarea rows={2} value={f.notes} onChange={(e) => set("notes")(e.target.value)} /></div>
       <div className="row">
-        <button className="btn" disabled={busy}>{busy ? "Saving…" : "Save changes"}</button>
+        <button className="btn" disabled={busy}>{busy ? "Saving..." : "Save changes"}</button>
         <button type="button" className="btn btn-secondary" onClick={() => onDone(false)}>Cancel</button>
       </div>
     </form>

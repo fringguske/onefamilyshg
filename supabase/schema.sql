@@ -1,6 +1,6 @@
 -- =====================================================================
---  One Family Merry-Go-Round — Supabase / PostgreSQL schema
---  Run this whole file once in Supabase → SQL Editor → New query → Run.
+--  One Family Merry-Go-Round: Supabase / PostgreSQL schema
+--  Run this whole file once in Supabase > SQL Editor > New query > Run.
 --  It is safe to run again (tables use IF NOT EXISTS, functions are replaced).
 --
 --  ACCURACY RULES
@@ -578,3 +578,15 @@ grant  execute on function void_bonus(uuid, text, text)                         
 grant  execute on function group_summary()                                            to service_role;
 grant  execute on function bonus_pool_cents()                                         to service_role;
 grant  execute on function members_with_history(integer)                              to service_role;
+
+-- ---------------------------------------------------------------------
+-- Table access for the server key. Newer Supabase projects no longer
+-- grant this automatically to tables created in the SQL Editor.
+-- The public (anon) roles get nothing.
+-- ---------------------------------------------------------------------
+grant usage on schema public to service_role;
+grant all on table settings, app_users, members, periods, member_entries,
+                   bonus_issues, bonus_allocations, audit_log to service_role;
+grant usage, select on all sequences in schema public to service_role;
+revoke all on table settings, app_users, members, periods, member_entries,
+                    bonus_issues, bonus_allocations, audit_log from anon, authenticated;

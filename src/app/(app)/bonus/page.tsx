@@ -99,7 +99,7 @@ export default function BonusPage() {
         <Alert kind="warn">Start the books under Monthly records first.</Alert>
       ) : (
         <div className="card">
-          <h2>New bonus — {monthLabel(info.period.year, info.period.month)}</h2>
+          <h2>New bonus for {monthLabel(info.period.year, info.period.month)}</h2>
           <div className="grid-form">
             <div className="field">
               <label htmlFor="amt">Total bonus amount</label>
@@ -152,7 +152,7 @@ export default function BonusPage() {
               </div>
               <div>
                 <button className="btn btn-danger" disabled={busy || confirm !== BONUS_CONFIRM_PHRASE} onClick={issue}>
-                  {busy ? "Issuing…" : `Issue bonus of ${formatMoney(preview.total)} (${payout === "savings" ? "to savings" : "cash"})`}
+                  {busy ? "Issuing..." : `Issue bonus of ${formatMoney(preview.total)} (${payout === "savings" ? "to savings" : "cash"})`}
                 </button>
               </div>
             </div>
@@ -189,7 +189,7 @@ export default function BonusPage() {
                         {b.allocations
                           .sort((x, y) => x.member.member_no - y.member.member_no)
                           .map((a) => `${a.member.full_name}: ${formatMoney(a.amount_cents)}`)
-                          .join(" · ")}
+                          .join(", ")}
                       </td>
                     </tr>
                   )}

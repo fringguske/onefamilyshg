@@ -1,7 +1,7 @@
 // All money is handled as whole cents (integers). Strings are parsed and
 // formatted digit by digit, so no floating-point rounding can creep in.
 
-export const MAX_CENTS = 100_000_000_000_00; // 100 billion — a sanity ceiling
+export const MAX_CENTS = 100_000_000_000_00; // 100 billion, a sanity ceiling
 
 const DECIMAL_RE = /^(\d+)(?:\.(\d{0,2}))?$/;
 
@@ -21,7 +21,7 @@ export function parseMoney(input: string | null | undefined): number | null {
 
 /** 1250050 -> "12,500.50" */
 export function formatMoney(cents: number | null | undefined): string {
-  if (cents === null || cents === undefined || !Number.isFinite(cents)) return "—";
+  if (cents === null || cents === undefined || !Number.isFinite(cents)) return "-";
   const negative = cents < 0;
   const digits = Math.abs(Math.trunc(cents)).toString().padStart(3, "0");
   const whole = digits.slice(0, -2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");

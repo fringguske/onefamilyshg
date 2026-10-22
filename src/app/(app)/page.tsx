@@ -40,7 +40,7 @@ export default function SummaryPage() {
         title="Group summary"
         subtitle={
           s.latest_period
-            ? <>Current month: <strong>{monthLabel(s.latest_period.year, s.latest_period.month)}</strong> · all amounts in {cur} · loan interest {formatPercent(settings.loan_rate_bps)}% and advance interest {formatPercent(settings.advance_rate_bps)}% per month</>
+            ? <>Current month: <strong>{monthLabel(s.latest_period.year, s.latest_period.month)}</strong>. All amounts in {cur}. Loan interest {formatPercent(settings.loan_rate_bps)}% and advance interest {formatPercent(settings.advance_rate_bps)}% per month</>
             : "The books have not been started yet."
         }
         actions={<button className="btn btn-secondary no-print" onClick={() => window.print()}>Print</button>}
@@ -51,10 +51,10 @@ export default function SummaryPage() {
 
       <section className="stats">
         <Stat strong label="Total savings" cents={s.total_savings} hint="All members, incl. bonuses credited" />
-        <Stat strong label="Total interest" cents={s.total_interest} hint={s.opening_interest ? `Incl. ${cur} ${fmt(s.opening_interest)} brought in` : "Loans and advances — goes to the group"} />
+        <Stat strong label="Total interest" cents={s.total_interest} hint={s.opening_interest ? `Incl. ${cur} ${fmt(s.opening_interest)} brought in` : "From loans and advances, goes to the group"} />
         <Stat strong label="Loans outstanding" cents={s.loans_outstanding} />
         <Stat strong label="Advances outstanding" cents={s.advances_outstanding} />
-        <Stat label="Cash at hand" cents={s.cash_at_hand} hint="Opening cash + fees + collections − issues − cash bonuses" />
+        <Stat label="Cash at hand" cents={s.cash_at_hand} hint="Opening cash + fees + collections - issues - cash bonuses" />
         <Stat label="Interest pool for bonus" cents={s.bonus_pool_available} hint="Interest from rolled months, less bonuses" />
         <Stat label="Bonuses issued" cents={s.bonus_total} />
         <Stat label="Registration fees" cents={s.registration_fees} />

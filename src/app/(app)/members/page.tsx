@@ -35,7 +35,7 @@ export default function MembersPage() {
       <PageHeader
         title="Member records"
         subtitle="Everyone in the group with their current balances."
-        actions={<Link className="btn" href="/members/register">+ Register member</Link>}
+        actions={<Link className="btn" href="/members/register">Register member</Link>}
       />
       {error && <Alert kind="error">{error}</Alert>}
       <div className="row">
@@ -56,7 +56,7 @@ export default function MembersPage() {
                 <tr key={m.id}>
                   <td>{m.member_no}</td>
                   <td><Link href={`/members/${m.id}`}>{m.full_name}</Link></td>
-                  <td>{m.phone ?? "—"}</td>
+                  <td>{m.phone ?? "-"}</td>
                   <td className="num">{m.joined_on}</td>
                   <td><span className={`badge ${m.status === "active" ? "badge-open" : "badge-closed"}`}>{m.status}</span></td>
                   <td className="num"><Money cents={m.registration_fee_cents} /></td>

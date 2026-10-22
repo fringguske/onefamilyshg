@@ -55,12 +55,12 @@ export default function RegisterPage() {
       {done && (
         <Alert kind="success">
           <strong>{done.full_name}</strong> is registered as member no. {done.member_no}.{" "}
-          <Link href={`/members/${done.id}`}>Open their record</Link> · <Link href="/month">Go to monthly records</Link>
+          <Link href={`/members/${done.id}`}>Open their record</Link> | <Link href="/month">Go to monthly records</Link>
         </Alert>
       )}
       {error && <Alert kind="error">{error}</Alert>}
       <form className="card" onSubmit={submit}>
-        {dirty && <p className="small muted">Draft saved on this device — it will still be here if you leave and come back.</p>}
+        {dirty && <p className="small muted">Draft saved on this device. It will still be here if you leave and come back.</p>}
         <div className="grid-form">
           <div className="field">
             <label htmlFor="name">Full name *</label>
@@ -81,7 +81,7 @@ export default function RegisterPage() {
           <div className="field">
             <label htmlFor="fee">Registration fee paid ({settings?.currency ?? "KES"})</label>
             <MoneyInput id="fee" value={feeText} onChange={set("fee")} />
-            <div className="hint">Standard fee: {settings ? formatMoney(settings.registration_fee_cents) : "…"}</div>
+            <div className="hint">Standard fee: {settings ? formatMoney(settings.registration_fee_cents) : "..."}</div>
           </div>
         </div>
         <div className="field">
@@ -93,7 +93,7 @@ export default function RegisterPage() {
           balances b/f in their first month under Monthly records.
         </p>
         <div className="row">
-          <button className="btn" disabled={busy || !form.full_name.trim()}>{busy ? "Saving…" : "Register member"}</button>
+          <button className="btn" disabled={busy || !form.full_name.trim()}>{busy ? "Saving..." : "Register member"}</button>
           {dirty && <button type="button" className="btn btn-secondary" onClick={clearForm}>Clear form</button>}
         </div>
       </form>

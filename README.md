@@ -65,9 +65,9 @@ they are saved to the database. The browser also warns before leaving a page wit
 ### 1. Supabase
 
 1. Create a project at [supabase.com](https://supabase.com).
-2. Open **SQL Editor → New query**, paste the whole of [`supabase/schema.sql`](supabase/schema.sql) and click **Run**.
+2. Open **SQL Editor > New query**, paste the whole of [`supabase/schema.sql`](supabase/schema.sql) and click **Run**.
    It is safe to run again later.
-3. From **Project Settings → API**, copy the **Project URL** and the **service_role** key.
+3. From **Project Settings > API Keys**, copy the **Project URL** and the **service_role** key.
 
 The browser never talks to Supabase directly. All tables have Row Level Security switched on with no policies, so the
 public anon key can read nothing. Only the server, using the service-role key, can read and write.
@@ -88,12 +88,12 @@ As you asked, the administrator login lives only in the environment variables, n
 password. To change your password, generate a new hash, update the variable, and redeploy.
 
 Chairman accounts are stored in the database with scrypt-hashed passwords. The administrator creates them under
-**Settings → Chairman accounts**, and each chairman can change their own password.
+**Settings > Chairman accounts**, and each chairman can change their own password.
 
 ### 3. Deploy to Vercel
 
 1. Push this folder to a GitHub repository.
-2. On [vercel.com](https://vercel.com) choose **Add New → Project** and import the repository. Vercel detects Next.js
+2. On [vercel.com](https://vercel.com) choose **Add New > Project** and import the repository. Vercel detects Next.js
    automatically.
 3. Add the environment variables above (Production, and Preview if you use it), then **Deploy**.
 
@@ -126,8 +126,8 @@ in the new month yet.
 supabase/schema.sql        tables, constraints, roll / undo / bonus / summary functions
 src/lib/ledger.ts          the accounting rules (shared by browser preview and server)
 src/lib/money.ts           cents parsing/formatting
-src/app/(app)/…            pages
-src/app/api/…              server API routes (all check the login)
+src/app/(app)/             pages
+src/app/api/               server API routes (all check the login)
 src/middleware.ts          redirects to /login when not signed in
 tests/ledger.test.ts       tests for the rules
 ```

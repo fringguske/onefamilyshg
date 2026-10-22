@@ -18,7 +18,7 @@ export const POST = route(async (req: Request) => {
   const username = String(body.username ?? "").trim().toLowerCase();
   const display_name = text(body.display_name, 80);
   const password = String(body.password ?? "");
-  if (!/^[a-z0-9._-]{3,40}$/.test(username)) throw new HttpError(400, "Username: 3–40 letters, numbers, dots or dashes.");
+  if (!/^[a-z0-9._-]{3,40}$/.test(username)) throw new HttpError(400, "Username: 3 to 40 letters, numbers, dots or dashes.");
   if (username === (process.env.ADMIN_USERNAME ?? "").trim().toLowerCase()) throw new HttpError(400, "That username is reserved.");
   if (!display_name) throw new HttpError(400, "Enter the chairman's name.");
   if (password.length < 8) throw new HttpError(400, "The password must have at least 8 characters.");

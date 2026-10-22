@@ -1,14 +1,11 @@
 import "server-only";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { HttpError } from "./errors";
 import { db } from "./supabase";
 import { SESSION_COOKIE, verifySession, type Role, type Session } from "./session";
 
-export class HttpError extends Error {
-  constructor(public status: number, message: string) {
-    super(message);
-  }
-}
+export { HttpError };
 
 export async function getSession(): Promise<Session | null> {
   const jar = await cookies();
@@ -62,9 +59,30 @@ export function check(res: { data: unknown; error: { message: string; code?: str
     if (code === "23514") throw new HttpError(422, "The figures do not add up, so the record was not saved. Reload and try again.");
     // messages raised by our own SQL functions are written for the user
     if (code === "P0001") throw new HttpError(422, message);
-    throw new Error(message);
+    throw setupError(code, message) ?? new Error(message);
   }
   return res.data;
+}
+
+/** Explains the usual set-up mistakes (schema not run, wrong key, wrong URL) instead of a generic error. */
+function setupError(code: string | undefined, message: string): HttpError | null {
+  console.error("Database error", code, message);
+  if (code === "42P01" || code === "PGRST205" || code === "PGRST202" || /does not exist|schema cache/i.test(message)) {
+    return new HttpError(500, "Database set-up: the tables are missing. Run supabase/schema.sql in the Supabase SQL Editor, then reload this page.");
+  }
+  if (code === "42501" || /permission denied/i.test(message)) {
+    return new HttpError(500, "Database set-up: the server key has no access to the tables. Run the latest supabase/schema.sql again in the Supabase SQL Editor, and check that SUPABASE_SERVICE_ROLE_KEY in Vercel is the secret / service_role key, not the anon or publishable key.");
+  }
+  if (code === "PGRST116") {
+    return new HttpError(500, "Database set-up: a required row was not found. Run supabase/schema.sql in the Supabase SQL Editor, and check that SUPABASE_SERVICE_ROLE_KEY is the secret / service_role key, not the anon or publishable key.");
+  }
+  if (/invalid api key|jwt|unauthorized|no api key/i.test(message) || code === "PGRST301") {
+    return new HttpError(500, "Database set-up: Supabase rejected the key. Copy SUPABASE_SERVICE_ROLE_KEY again from Supabase (Project Settings > API Keys), save it in Vercel and redeploy.");
+  }
+  if (/fetch failed|ENOTFOUND|ECONNREFUSED|getaddrinfo/i.test(message)) {
+    return new HttpError(500, "Database set-up: cannot reach Supabase. Check SUPABASE_URL in Vercel (it looks like https://xxxx.supabase.co) and redeploy.");
+  }
+  return null;
 }
 
 export async function audit(actor: Session | string, action: string, details: Record<string, unknown> = {}) {

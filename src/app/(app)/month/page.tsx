@@ -210,7 +210,7 @@ function MonthPage() {
       if (await saveRow(row)) ok++;
       else failed++;
     }
-    setNotice(failed ? `${ok} saved, ${failed} not saved — check the rows marked in red.` : `${ok} record(s) saved.`);
+    setNotice(failed ? `${ok} saved, ${failed} not saved. Check the rows marked in red.` : `${ok} record(s) saved.`);
   }
 
   const rows = data?.rows ?? [];
@@ -245,7 +245,7 @@ function MonthPage() {
   return (
     <div className="stack">
       <PageHeader
-        title={`Monthly records — ${label}`}
+        title={`Monthly records: ${label}`}
         subtitle={
           editable ? (
             <>Feed what each member brought. Interest is deducted first, then repayments; the balance goes to savings. <span className="badge badge-open">Open</span></>
@@ -261,7 +261,7 @@ function MonthPage() {
               ))}
             </select>
             <button className="btn btn-secondary" disabled={loading} onClick={() => (requested ? router.push("/month") : load(null))}>
-              {loading ? "Loading…" : "Load group records for this month"}
+              {loading ? "Loading..." : "Load group records for this month"}
             </button>
             <button className="btn btn-secondary" onClick={() => exportCsv(label, rows, view)}>Export CSV</button>
           </>
@@ -289,7 +289,7 @@ function MonthPage() {
         {editable && (
           <>
             <button className="btn" disabled={!dirtyIds.length} onClick={saveAll}>Save all changes</button>
-            <button className="btn btn-secondary" onClick={() => setRollOpen(true)}>Roll to {monthLabel(nm.year, nm.month)} →</button>
+            <button className="btn btn-secondary" onClick={() => setRollOpen(true)}>Roll to {monthLabel(nm.year, nm.month)}</button>
           </>
         )}
       </div>
@@ -323,7 +323,7 @@ function MonthPage() {
               const money = (k: ManualKey, lbl: string) => (
                 <td className="num" data-label={lbl}>
                   {editable ? (
-                    <MoneyInput label={`${lbl} — ${row.member.full_name}`} value={v.text[k]} onChange={(x) => edit(row, k, x)} />
+                    <MoneyInput label={`${lbl}, ${row.member.full_name}`} value={v.text[k]} onChange={(x) => edit(row, k, x)} />
                   ) : (
                     <Money cents={row[k]} dashZero />
                   )}
@@ -332,7 +332,7 @@ function MonthPage() {
               const opening = (k: OpeningKey, lbl: string) => (
                 <td className={`num${canEditOpenings ? "" : " auto"}`} data-label={lbl}>
                   {canEditOpenings ? (
-                    <MoneyInput label={`${lbl} — ${row.member.full_name}`} value={v.openText[k]} onChange={(x) => edit(row, k, x, true)} />
+                    <MoneyInput label={`${lbl}, ${row.member.full_name}`} value={v.openText[k]} onChange={(x) => edit(row, k, x, true)} />
                   ) : (
                     <Money cents={v.openings[k]} />
                   )}
@@ -348,14 +348,14 @@ function MonthPage() {
                     <div><strong>{row.member.full_name}</strong></div>
                     <div className="no">
                       No. {row.member.member_no}
-                      {row.member.status !== "active" && " · inactive"}
-                      {canEditOpenings && " · first month: type balances b/f"}
+                      {row.member.status !== "active" && ", inactive"}
+                      {canEditOpenings && ", first month: type balances b/f"}
                     </div>
                     {err && <div className="row-errors">{err}</div>}
                     {v.conflict && (
                       <div className="row-errors">
                         This record was changed by someone else after you started typing.{" "}
-                        <button className="linkish" onClick={() => keepDraft(row)}>Keep my figures</button> ·{" "}
+                        <button className="linkish" onClick={() => keepDraft(row)}>Keep my figures</button> or{" "}
                         <button className="linkish" onClick={() => discard(row.id)}>Use saved figures</button>
                       </div>
                     )}
@@ -380,12 +380,12 @@ function MonthPage() {
                       {v.draft ? (
                         <div className="row" style={{ gap: 6, flexWrap: "nowrap" }}>
                           <button className="btn btn-small" disabled={saving[row.id] || v.errors.length > 0 || v.conflict} onClick={() => saveRow(row)}>
-                            {saving[row.id] ? "…" : "Save"}
+                            {saving[row.id] ? "Saving" : "Save"}
                           </button>
-                          <button className="btn btn-small btn-secondary" onClick={() => discard(row.id)} title="Undo my typing">↺</button>
+                          <button className="btn btn-small btn-secondary" onClick={() => discard(row.id)} title="Undo my typing">Undo</button>
                         </div>
                       ) : justSaved[row.id] ? (
-                        <span className="badge badge-saved">Saved ✓</span>
+                        <span className="badge badge-saved">Saved</span>
                       ) : null}
                     </td>
                   )}
@@ -465,10 +465,10 @@ function RollDialog({ period, rows, unsaved, onClose, onRolled }: {
   }
 
   return (
-    <Modal title={`Roll ${label} → ${monthLabel(nm.year, nm.month)}`} onClose={onClose}>
+    <Modal title={`Roll ${label} to ${monthLabel(nm.year, nm.month)}`} onClose={onClose}>
       <p>Rolling will:</p>
       <ul>
-        <li><strong>Lock {label}</strong> — its records can no longer be changed.</li>
+        <li><strong>Lock {label}</strong>. Its records can no longer be changed.</li>
         <li>Carry every member&apos;s savings, loan and advance balance into {monthLabel(nm.year, nm.month)}.</li>
         <li>Work out next month&apos;s interest on the loans and advances carried forward.</li>
         <li>Leave the amounts to be fed for {monthLabel(nm.year, nm.month)} empty.</li>
@@ -488,7 +488,7 @@ function RollDialog({ period, rows, unsaved, onClose, onRolled }: {
         </>
       )}
       <div className="row" style={{ marginTop: 12 }}>
-        <button className="btn" disabled={busy || unsaved > 0 || !checked} onClick={roll}>{busy ? "Rolling…" : `Roll to ${monthLabel(nm.year, nm.month)}`}</button>
+        <button className="btn" disabled={busy || unsaved > 0 || !checked} onClick={roll}>{busy ? "Rolling..." : `Roll to ${monthLabel(nm.year, nm.month)}`}</button>
         <button className="btn btn-secondary" onClick={onClose}>Cancel</button>
       </div>
     </Modal>
@@ -527,7 +527,7 @@ function StartBooks({ onStarted }: { onStarted: () => void }) {
             {MONTH_NAMES.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
           </select>
           <input type="number" value={year} min={2000} max={2200} onChange={(e) => setYear(Number(e.target.value))} aria-label="Year" style={{ width: 110 }} />
-          <button className="btn" disabled={busy} onClick={start}>{busy ? "Starting…" : `Start with ${monthLabel(year, month)}`}</button>
+          <button className="btn" disabled={busy} onClick={start}>{busy ? "Starting..." : `Start with ${monthLabel(year, month)}`}</button>
         </div>
       </div>
     </div>

@@ -52,7 +52,7 @@ function GroupSettings({ settings, canEdit, onSaved }: { settings: Settings; can
       registration_fee_cents: parseMoney(f.fee), opening_cash_cents: parseMoney(f.opening_cash),
       opening_interest_pool_cents: parseMoney(f.opening_interest),
     };
-    if (Object.values(body).some((v) => v === null)) return setMsg({ kind: "error", text: "Check the numbers — one of them is not valid." });
+    if (Object.values(body).some((v) => v === null)) return setMsg({ kind: "error", text: "Check the numbers. One of them is not valid." });
     setBusy(true);
     try {
       const { settings: s } = await api<{ settings: Settings }>("/api/settings", { method: "PUT", body });
@@ -92,7 +92,7 @@ function GroupSettings({ settings, canEdit, onSaved }: { settings: Settings; can
             <div className="hint">Interest earned before this system and not yet shared out.</div>
           </div>
         </div>
-        {canEdit && <button className="btn" disabled={busy}>{busy ? "Saving…" : "Save settings"}</button>}
+        {canEdit && <button className="btn" disabled={busy}>{busy ? "Saving..." : "Save settings"}</button>}
       </fieldset>
     </form>
   );
@@ -182,7 +182,7 @@ function Chairmen() {
                   </td>
                 </tr>
               ))}
-              {!users.length && <tr><td colSpan={4} className="muted">No chairman account yet — create one below.</td></tr>}
+              {!users.length && <tr><td colSpan={4} className="muted">No chairman account yet. Create one below.</td></tr>}
             </tbody>
           </table>
         </div>
@@ -218,7 +218,7 @@ function UndoRoll() {
   return (
     <div className="card">
       <h2>Undo the last roll</h2>
-      <p className="muted">If the month was rolled by mistake or a record must be corrected, you can reopen it — as long as nothing has been fed in the new month yet.</p>
+      <p className="muted">If the month was rolled by mistake or a record must be corrected, you can reopen it, as long as nothing has been fed in the new month yet.</p>
       {msg && <Alert kind={msg.kind}>{msg.text}</Alert>}
       <button className="btn btn-danger" disabled={busy} onClick={undo}>Undo last roll</button>
     </div>
@@ -264,5 +264,5 @@ function AuditLog() {
 function describe(d: Record<string, unknown> | null): string {
   if (!d) return "";
   const s = JSON.stringify(d, (k, v) => (typeof v === "number" && /cents|amount|paid|repaid|issued|open|total/.test(k) ? formatMoney(v) : v));
-  return s.length > 220 ? s.slice(0, 220) + "…" : s;
+  return s.length > 220 ? s.slice(0, 220) + "..." : s;
 }

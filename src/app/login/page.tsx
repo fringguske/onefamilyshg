@@ -26,7 +26,7 @@ export default function LoginPage() {
     <div className="login-page">
       <form className="login-card" onSubmit={submit}>
         <h1>One Family</h1>
-        <p className="muted">Merry-Go-Round — sign in to continue</p>
+        <p className="muted">Merry-Go-Round. Sign in to continue.</p>
         {error && <div className="alert alert-error" role="alert">{error}</div>}
         <div className="field">
           <label htmlFor="u">Username</label>
@@ -36,7 +36,7 @@ export default function LoginPage() {
           <label htmlFor="p">Password</label>
           <input id="p" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required />
         </div>
-        <button className="btn btn-big" disabled={busy}>{busy ? "Signing in…" : "Sign in"}</button>
+        <button className="btn btn-big" disabled={busy}>{busy ? "Signing in..." : "Sign in"}</button>
       </form>
     </div>
   );

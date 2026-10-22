@@ -29,10 +29,10 @@ export function Stat({ label, cents, hint, strong }: { label: string; cents: num
 }
 
 export function Money({ cents, dashZero }: { cents: number; dashZero?: boolean }) {
-  return <span className="num">{dashZero && !cents ? "–" : formatMoney(cents)}</span>;
+  return <span className="num">{dashZero && !cents ? "-" : formatMoney(cents)}</span>;
 }
 
-export function Loading({ text = "Loading…" }: { text?: string }) {
+export function Loading({ text = "Loading..." }: { text?: string }) {
   return <p className="muted loading">{text}</p>;
 }
 
@@ -42,7 +42,7 @@ export function Modal({ title, children, onClose }: { title: string; children: R
       <div className="modal" role="dialog" aria-modal="true" aria-label={title} onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
           <h2>{title}</h2>
-          <button className="btn-icon" onClick={onClose} aria-label="Close">×</button>
+          <button className="btn-icon" onClick={onClose} aria-label="Close">Close</button>
         </div>
         {children}
       </div>
