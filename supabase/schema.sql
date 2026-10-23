@@ -21,7 +21,6 @@ create table if not exists settings (
   id                          smallint primary key default 1 check (id = 1),
   group_name                  text    not null default 'One Family Merry-Go-Round',
   currency                    text    not null default 'KES',
-  loan_rate_bps               integer not null default 1000 check (loan_rate_bps between 0 and 10000),
   advance_rate_bps            integer not null default 1000 check (advance_rate_bps between 0 and 10000),
   registration_fee_cents      bigint  not null default 0 check (registration_fee_cents >= 0),
   -- cash the group already held when the books were started in this system
@@ -31,6 +30,9 @@ create table if not exists settings (
   updated_at                  timestamptz not null default now()
 );
 insert into settings (id) values (1) on conflict (id) do nothing;
+-- what each member gives the merry go round recipient every month
+alter table settings add column if not exists mgr_contribution_cents bigint not null default 0 check (mgr_contribution_cents >= 0);
+alter table settings drop column if exists loan_rate_bps;
 
 -- ---------------------------------------------------------------------
 -- Chairman accounts (the administrator lives in Vercel env variables)
@@ -64,8 +66,8 @@ create table if not exists members (
 -- Balances an existing member brings into the system. Used as the balances b/f
 -- of their first month only; after that the roll carries everything.
 alter table members add column if not exists opening_savings_cents bigint not null default 0 check (opening_savings_cents >= 0);
-alter table members add column if not exists opening_loan_cents    bigint not null default 0 check (opening_loan_cents >= 0);
 alter table members add column if not exists opening_advance_cents bigint not null default 0 check (opening_advance_cents >= 0);
+alter table members drop column if exists opening_loan_cents;
 
 -- ---------------------------------------------------------------------
 -- Months (the group meets once a month). Only one month is open at a time.
@@ -81,6 +83,8 @@ create table if not exists periods (
   closed_by text
 );
 create unique index if not exists periods_one_open on periods ((status)) where status = 'open';
+-- the member who takes the merry go round this month
+alter table periods add column if not exists mgr_member_id uuid references members (id) on delete restrict;
 
 -- ---------------------------------------------------------------------
 -- Member transactions: one row per member per month
@@ -92,70 +96,76 @@ create table if not exists member_entries (
 
   -- Brought forward (calculated by the roll)
   savings_open             bigint not null default 0,
-  loan_bal_open            bigint not null default 0,
   advance_bal_open         bigint not null default 0,
-  loan_interest_bf         bigint not null default 0,   -- unpaid loan interest from earlier months
   advance_interest_bf      bigint not null default 0,   -- unpaid advance interest from earlier months
-  loan_interest_charged    bigint not null default 0,   -- this month: rate x loan balance b/f
   advance_interest_charged bigint not null default 0,   -- this month: rate x advance balance b/f
 
   -- Fed manually by the chairman
   amount_paid    bigint not null default 0,   -- total cash the member brought
-  loan_repaid    bigint not null default 0,
   advance_repaid bigint not null default 0,
-  loan_issued    bigint not null default 0,
   advance_issued bigint not null default 0,
   notes          text,
 
   -- Calculated
-  loan_interest_paid       bigint not null default 0,
   advance_interest_paid    bigint not null default 0,
   savings_contribution     bigint not null default 0,  -- the balance after interest and repayments
   bonus_credit             bigint not null default 0,  -- bonus credited to savings this month
   savings_close            bigint not null default 0,
-  loan_bal_close           bigint not null default 0,
   advance_bal_close        bigint not null default 0,
-  loan_interest_arrears    bigint not null default 0,
   advance_interest_arrears bigint not null default 0,
 
   version    integer not null default 1,
   updated_at timestamptz not null default now(),
   updated_by text,
 
-  unique (period_id, member_id),
-
-  constraint entry_non_negative check (
-    savings_open >= 0 and loan_bal_open >= 0 and advance_bal_open >= 0 and
-    loan_interest_bf >= 0 and advance_interest_bf >= 0 and
-    loan_interest_charged >= 0 and advance_interest_charged >= 0 and
-    amount_paid >= 0 and loan_repaid >= 0 and advance_repaid >= 0 and
-    loan_issued >= 0 and advance_issued >= 0 and
-    loan_interest_paid >= 0 and advance_interest_paid >= 0 and
-    savings_contribution >= 0 and bonus_credit >= 0 and savings_close >= 0 and
-    loan_bal_close >= 0 and advance_bal_close >= 0 and
-    loan_interest_arrears >= 0 and advance_interest_arrears >= 0),
-  -- the cash brought is fully accounted for
-  constraint entry_cash_identity check (
-    amount_paid = loan_interest_paid + advance_interest_paid + loan_repaid + advance_repaid + savings_contribution),
-  -- interest is never over-collected
-  constraint entry_interest_cap check (
-    loan_interest_paid <= loan_interest_bf + loan_interest_charged and
-    advance_interest_paid <= advance_interest_bf + advance_interest_charged),
-  -- interest is deducted first: loan interest, then advance interest, then repayments / savings
-  constraint entry_interest_first check (
-    (advance_interest_paid = 0 or loan_interest_paid = loan_interest_bf + loan_interest_charged) and
-    (loan_repaid + advance_repaid + savings_contribution = 0 or
-      (loan_interest_paid = loan_interest_bf + loan_interest_charged and
-       advance_interest_paid = advance_interest_bf + advance_interest_charged))),
-  -- you cannot repay more than what was owed at the start of the month
-  constraint entry_repay_cap check (loan_repaid <= loan_bal_open and advance_repaid <= advance_bal_open),
-  constraint entry_loan_identity check (loan_bal_close = loan_bal_open + loan_issued - loan_repaid),
-  constraint entry_advance_identity check (advance_bal_close = advance_bal_open + advance_issued - advance_repaid),
-  constraint entry_arrears_identity check (
-    loan_interest_arrears = loan_interest_bf + loan_interest_charged - loan_interest_paid and
-    advance_interest_arrears = advance_interest_bf + advance_interest_charged - advance_interest_paid),
-  constraint entry_savings_identity check (savings_close = savings_open + savings_contribution + bonus_credit)
+  unique (period_id, member_id)
 );
+-- given by this member to the month's merry go round recipient
+alter table member_entries add column if not exists mgr_contribution bigint not null default 0;
+
+-- Loans are not used by the group. Dropping these also drops the old checks that used them.
+alter table member_entries drop column if exists loan_bal_open,
+                           drop column if exists loan_interest_bf,
+                           drop column if exists loan_interest_charged,
+                           drop column if exists loan_repaid,
+                           drop column if exists loan_issued,
+                           drop column if exists loan_interest_paid,
+                           drop column if exists loan_bal_close,
+                           drop column if exists loan_interest_arrears;
+
+alter table member_entries
+  drop constraint if exists entry_non_negative,
+  drop constraint if exists entry_cash_identity,
+  drop constraint if exists entry_interest_cap,
+  drop constraint if exists entry_interest_first,
+  drop constraint if exists entry_repay_cap,
+  drop constraint if exists entry_loan_identity,
+  drop constraint if exists entry_advance_identity,
+  drop constraint if exists entry_arrears_identity,
+  drop constraint if exists entry_savings_identity;
+alter table member_entries
+  add constraint entry_non_negative check (
+    savings_open >= 0 and advance_bal_open >= 0 and
+    advance_interest_bf >= 0 and advance_interest_charged >= 0 and
+    amount_paid >= 0 and advance_repaid >= 0 and advance_issued >= 0 and mgr_contribution >= 0 and
+    advance_interest_paid >= 0 and savings_contribution >= 0 and bonus_credit >= 0 and savings_close >= 0 and
+    advance_bal_close >= 0 and advance_interest_arrears >= 0),
+  -- the cash brought is fully accounted for
+  add constraint entry_cash_identity check (
+    amount_paid = advance_interest_paid + advance_repaid + savings_contribution),
+  -- interest is never over-collected
+  add constraint entry_interest_cap check (
+    advance_interest_paid <= advance_interest_bf + advance_interest_charged),
+  -- interest is deducted first, then repayments / savings
+  add constraint entry_interest_first check (
+    advance_repaid + savings_contribution = 0 or
+    advance_interest_paid = advance_interest_bf + advance_interest_charged),
+  -- you cannot repay more than what was owed at the start of the month
+  add constraint entry_repay_cap check (advance_repaid <= advance_bal_open),
+  add constraint entry_advance_identity check (advance_bal_close = advance_bal_open + advance_issued - advance_repaid),
+  add constraint entry_arrears_identity check (
+    advance_interest_arrears = advance_interest_bf + advance_interest_charged - advance_interest_paid),
+  add constraint entry_savings_identity check (savings_close = savings_open + savings_contribution + bonus_credit);
 create index if not exists member_entries_member on member_entries (member_id);
 
 -- ---------------------------------------------------------------------
@@ -235,6 +245,22 @@ create trigger member_entries_guard
   before insert or update or delete on member_entries
   for each row execute function guard_closed_period();
 
+-- the merry go round recipient does not contribute to themselves
+create or replace function guard_mgr_contribution() returns trigger
+language plpgsql as $$
+begin
+  if new.mgr_contribution > 0 and exists (select 1 from periods
+                                          where id = new.period_id and mgr_member_id = new.member_id) then
+    raise exception 'This member takes the merry go round this month, so they do not contribute to it.';
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists member_entries_mgr_guard on member_entries;
+create trigger member_entries_mgr_guard
+  before insert or update on member_entries
+  for each row execute function guard_mgr_contribution();
+
 -- ---------------------------------------------------------------------
 -- Interest: rate x balance, rounded half-up to the nearest cent
 -- (pure integer arithmetic, identical to interestOn() in src/lib/ledger.ts)
@@ -259,16 +285,13 @@ begin
   insert into periods (year, month) values (p_year, p_month) returning id into pid;
   -- first month: balances b/f are each member's opening balances
   insert into member_entries (
-    period_id, member_id, savings_open, loan_bal_open, advance_bal_open,
-    loan_interest_charged, advance_interest_charged,
-    savings_close, loan_bal_close, advance_bal_close, loan_interest_arrears, advance_interest_arrears)
-  select pid, m.id, m.opening_savings_cents, m.opening_loan_cents, m.opening_advance_cents,
-         x.li, x.ai,
-         m.opening_savings_cents, m.opening_loan_cents, m.opening_advance_cents, x.li, x.ai
+    period_id, member_id, savings_open, advance_bal_open, advance_interest_charged,
+    savings_close, advance_bal_close, advance_interest_arrears)
+  select pid, m.id, m.opening_savings_cents, m.opening_advance_cents, x.ai,
+         m.opening_savings_cents, m.opening_advance_cents, x.ai
   from members m
   cross join settings s
-  cross join lateral (select interest_on(m.opening_loan_cents, s.loan_rate_bps)       as li,
-                             interest_on(m.opening_advance_cents, s.advance_rate_bps) as ai) x
+  cross join lateral (select interest_on(m.opening_advance_cents, s.advance_rate_bps) as ai) x
   where m.status = 'active' and s.id = 1;
   insert into audit_log (actor, action, details)
     values (p_actor, 'start_books', jsonb_build_object('year', p_year, 'month', p_month));
@@ -313,24 +336,18 @@ begin
 
   insert into member_entries (
     period_id, member_id,
-    savings_open, loan_bal_open, advance_bal_open,
-    loan_interest_bf, advance_interest_bf, loan_interest_charged, advance_interest_charged,
-    savings_close, loan_bal_close, advance_bal_close, loan_interest_arrears, advance_interest_arrears)
+    savings_open, advance_bal_open, advance_interest_bf, advance_interest_charged,
+    savings_close, advance_bal_close, advance_interest_arrears)
   select
     nid, x.member_id,
-    x.savings_close, x.loan_bal_close, x.advance_bal_close,
-    x.loan_interest_arrears, x.advance_interest_arrears, x.li, x.ai,
-    x.savings_close, x.loan_bal_close, x.advance_bal_close,
-    x.loan_interest_arrears + x.li, x.advance_interest_arrears + x.ai
+    x.savings_close, x.advance_bal_close, x.advance_interest_arrears, x.ai,
+    x.savings_close, x.advance_bal_close, x.advance_interest_arrears + x.ai
   from (
-    select e.*,
-           interest_on(e.loan_bal_close, s.loan_rate_bps)       as li,
-           interest_on(e.advance_bal_close, s.advance_rate_bps) as ai
+    select e.*, interest_on(e.advance_bal_close, s.advance_rate_bps) as ai
     from member_entries e
     join members m on m.id = e.member_id
     where e.period_id = cur.id
-      and (m.status = 'active' or e.savings_close > 0 or e.loan_bal_close > 0 or e.advance_bal_close > 0
-           or e.loan_interest_arrears > 0 or e.advance_interest_arrears > 0)
+      and (m.status = 'active' or e.savings_close > 0 or e.advance_bal_close > 0 or e.advance_interest_arrears > 0)
   ) x;
 
   insert into audit_log (actor, action, details)
@@ -359,8 +376,8 @@ begin
   end if;
   if exists (select 1 from member_entries
              where period_id = cur.id
-               and (amount_paid + loan_repaid + advance_repaid + loan_issued + advance_issued + bonus_credit > 0
-                    or coalesce(btrim(notes), '') <> '')) then
+               and (amount_paid + advance_repaid + advance_issued + mgr_contribution + bonus_credit > 0
+                    or coalesce(btrim(notes), '') <> '')) or cur.mgr_member_id is not null then
     raise exception 'Records have already been fed for the new month. Clear them first, then undo the roll.';
   end if;
   if exists (select 1 from bonus_issues where period_id = cur.id) then
@@ -384,7 +401,7 @@ end $$;
 create or replace function bonus_pool_cents() returns bigint
 language sql stable as $$
   select (select opening_interest_pool_cents from settings where id = 1)
-       + coalesce((select sum(e.loan_interest_paid + e.advance_interest_paid)
+       + coalesce((select sum(e.advance_interest_paid)
                    from member_entries e join periods p on p.id = e.period_id
                    where p.status = 'closed'), 0)
        - coalesce((select sum(total_cents) from bonus_issues where voided_at is null), 0)
@@ -486,6 +503,33 @@ begin
 end $$;
 
 -- ---------------------------------------------------------------------
+-- MERRY GO ROUND: choose (or clear) who takes it in the open month
+-- ---------------------------------------------------------------------
+create or replace function set_mgr_recipient(p_period_id uuid, p_member_id uuid, p_actor text) returns void
+language plpgsql as $$
+declare
+  cur periods%rowtype;
+begin
+  perform pg_advisory_xact_lock(424242);
+  select * into cur from periods where id = p_period_id for update;
+  if not found or cur.status <> 'open' then
+    raise exception 'This month has been rolled, so its records are locked.';
+  end if;
+  if p_member_id is not null then
+    if not exists (select 1 from member_entries where period_id = cur.id and member_id = p_member_id) then
+      raise exception 'This member is not in this month''s records.';
+    end if;
+    if exists (select 1 from member_entries
+               where period_id = cur.id and member_id = p_member_id and mgr_contribution > 0) then
+      raise exception 'This member already has a merry go round contribution recorded this month. Clear it first.';
+    end if;
+  end if;
+  update periods set mgr_member_id = p_member_id where id = cur.id;
+  insert into audit_log (actor, action, details)
+    values (p_actor, 'mgr_recipient_set', jsonb_build_object('period_id', cur.id, 'from', cur.mgr_member_id, 'to', p_member_id));
+end $$;
+
+-- ---------------------------------------------------------------------
 -- Members who already have records before a given month
 -- (everyone else may have opening balances typed in)
 -- ---------------------------------------------------------------------
@@ -505,21 +549,18 @@ language sql stable as $$
     select * from periods order by seq desc limit 1
   ),
   bal as (
-    select coalesce(sum(savings_close), 0)                                   as total_savings,
-           coalesce(sum(loan_bal_close), 0)                                  as loans_outstanding,
-           coalesce(sum(advance_bal_close), 0)                               as advances_outstanding,
-           coalesce(sum(loan_interest_arrears + advance_interest_arrears), 0) as interest_arrears
+    select coalesce(sum(savings_close), 0)            as total_savings,
+           coalesce(sum(advance_bal_close), 0)        as advances_outstanding,
+           coalesce(sum(advance_interest_arrears), 0) as interest_arrears
     from member_entries where period_id = (select id from latest)
   ),
   flows as (
     select coalesce(sum(amount_paid), 0)           as total_collected,
            coalesce(sum(savings_contribution), 0)  as savings_contributed,
-           coalesce(sum(loan_issued), 0)           as loans_issued,
-           coalesce(sum(loan_repaid), 0)           as loans_repaid,
            coalesce(sum(advance_issued), 0)        as advances_issued,
            coalesce(sum(advance_repaid), 0)        as advances_repaid,
-           coalesce(sum(loan_interest_paid), 0)    as loan_interest,
-           coalesce(sum(advance_interest_paid), 0) as advance_interest
+           coalesce(sum(advance_interest_paid), 0) as advance_interest,
+           coalesce(sum(mgr_contribution), 0)      as mgr_total
     from member_entries
   ),
   bon as (
@@ -537,39 +578,37 @@ language sql stable as $$
   select json_build_object(
     'latest_period',        (select json_build_object('id', id, 'year', year, 'month', month, 'status', status) from latest),
     'total_savings',        bal.total_savings,
-    'loans_outstanding',    bal.loans_outstanding,
     'advances_outstanding', bal.advances_outstanding,
     'interest_arrears',     bal.interest_arrears,
     'total_collected',      flows.total_collected,
     'savings_contributed',  flows.savings_contributed,
-    'loans_issued',         flows.loans_issued,
-    'loans_repaid',         flows.loans_repaid,
     'advances_issued',      flows.advances_issued,
     'advances_repaid',      flows.advances_repaid,
-    'loan_interest',        flows.loan_interest,
     'advance_interest',     flows.advance_interest,
     'opening_interest',     s.opening_interest_pool_cents,
-    'total_interest',       s.opening_interest_pool_cents + flows.loan_interest + flows.advance_interest,
+    'total_interest',       s.opening_interest_pool_cents + flows.advance_interest,
+    'mgr_total',            flows.mgr_total,
     'bonus_total',          bon.bonus_total,
     'bonus_cash',           bon.bonus_cash,
     'bonus_pool_available', bonus_pool_cents(),
     'registration_fees',    mem.registration_fees,
     'opening_cash',         s.opening_cash_cents,
+    -- merry go round money goes straight from the members to the recipient, so it is not in the cash
     'cash_at_hand',         s.opening_cash_cents + mem.registration_fees + flows.total_collected
-                              - flows.loans_issued - flows.advances_issued - bon.bonus_cash,
+                              - flows.advances_issued - bon.bonus_cash,
     'active_members',       mem.active_members,
     'all_members',          mem.all_members,
     'by_month', coalesce((
       select json_agg(r order by r.seq desc) from (
         select p.id, p.seq, p.year, p.month, p.status,
-               count(e.id)                                         as members,
-               coalesce(sum(e.amount_paid), 0)                     as collected,
-               coalesce(sum(e.loan_interest_paid + e.advance_interest_paid), 0) as interest,
-               coalesce(sum(e.savings_contribution), 0)            as savings,
-               coalesce(sum(e.loan_issued), 0)                     as loans_issued,
-               coalesce(sum(e.loan_repaid), 0)                     as loans_repaid,
-               coalesce(sum(e.advance_issued), 0)                  as advances_issued,
-               coalesce(sum(e.advance_repaid), 0)                  as advances_repaid
+               (select full_name from members where id = p.mgr_member_id) as mgr_recipient,
+               count(e.id)                                 as members,
+               coalesce(sum(e.amount_paid), 0)             as collected,
+               coalesce(sum(e.advance_interest_paid), 0)   as interest,
+               coalesce(sum(e.savings_contribution), 0)    as savings,
+               coalesce(sum(e.advance_issued), 0)          as advances_issued,
+               coalesce(sum(e.advance_repaid), 0)          as advances_repaid,
+               coalesce(sum(e.mgr_contribution), 0)        as mgr_total
         from periods p left join member_entries e on e.period_id = p.id
         group by p.id
       ) r), '[]'::json)
@@ -586,6 +625,7 @@ revoke execute on function void_bonus(uuid, text, text)                         
 revoke execute on function group_summary()                                             from public, anon, authenticated;
 revoke execute on function bonus_pool_cents()                                          from public, anon, authenticated;
 revoke execute on function members_with_history(integer)                               from public, anon, authenticated;
+revoke execute on function set_mgr_recipient(uuid, uuid, text)                         from public, anon, authenticated;
 grant  execute on function start_books(integer, integer, text)                         to service_role;
 grant  execute on function roll_period(uuid, text)                                    to service_role;
 grant  execute on function undo_roll(text)                                            to service_role;
@@ -594,6 +634,7 @@ grant  execute on function void_bonus(uuid, text, text)                         
 grant  execute on function group_summary()                                            to service_role;
 grant  execute on function bonus_pool_cents()                                         to service_role;
 grant  execute on function members_with_history(integer)                              to service_role;
+grant  execute on function set_mgr_recipient(uuid, uuid, text)                        to service_role;
 
 -- ---------------------------------------------------------------------
 -- Table access for the server key. Newer Supabase projects no longer

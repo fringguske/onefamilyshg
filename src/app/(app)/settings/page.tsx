@@ -34,9 +34,9 @@ function GroupSettings({ settings, canEdit, onSaved }: { settings: Settings; can
   const [f, setF] = useState({
     group_name: settings.group_name,
     currency: settings.currency,
-    loan_rate: formatPercent(settings.loan_rate_bps),
     advance_rate: formatPercent(settings.advance_rate_bps),
     fee: centsToInput(settings.registration_fee_cents),
+    mgr: centsToInput(settings.mgr_contribution_cents),
     opening_cash: centsToInput(settings.opening_cash_cents),
     opening_interest: centsToInput(settings.opening_interest_pool_cents),
   });
@@ -48,8 +48,8 @@ function GroupSettings({ settings, canEdit, onSaved }: { settings: Settings; can
     e.preventDefault();
     const body = {
       group_name: f.group_name, currency: f.currency,
-      loan_rate_bps: parsePercent(f.loan_rate), advance_rate_bps: parsePercent(f.advance_rate),
-      registration_fee_cents: parseMoney(f.fee), opening_cash_cents: parseMoney(f.opening_cash),
+      advance_rate_bps: parsePercent(f.advance_rate),
+      registration_fee_cents: parseMoney(f.fee), mgr_contribution_cents: parseMoney(f.mgr), opening_cash_cents: parseMoney(f.opening_cash),
       opening_interest_pool_cents: parseMoney(f.opening_interest),
     };
     if (Object.values(body).some((v) => v === null)) return setMsg({ kind: "error", text: "Check the numbers. One of them is not valid." });
@@ -75,14 +75,11 @@ function GroupSettings({ settings, canEdit, onSaved }: { settings: Settings; can
           <div className="field"><label>Group name</label><input value={f.group_name} onChange={(e) => set("group_name")(e.target.value)} /></div>
           <div className="field"><label>Currency</label><input value={f.currency} onChange={(e) => set("currency")(e.target.value)} /></div>
           <div className="field">
-            <label>Loan interest (% per month)</label>
-            <input inputMode="decimal" value={f.loan_rate} onChange={(e) => set("loan_rate")(e.target.value)} className={parsePercent(f.loan_rate) === null ? "invalid" : ""} />
-          </div>
-          <div className="field">
             <label>Advance interest (% per month)</label>
             <input inputMode="decimal" value={f.advance_rate} onChange={(e) => set("advance_rate")(e.target.value)} className={parsePercent(f.advance_rate) === null ? "invalid" : ""} />
           </div>
           <div className="field"><label>Standard registration fee</label><MoneyInput value={f.fee} onChange={set("fee")} /></div>
+          <div className="field"><label>Merry go round contribution per member</label><MoneyInput value={f.mgr} onChange={set("mgr")} /></div>
           <div className="field">
             <label>Opening cash</label><MoneyInput value={f.opening_cash} onChange={set("opening_cash")} />
             <div className="hint">Cash/bank the group held when the books were started here.</div>

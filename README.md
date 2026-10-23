@@ -1,34 +1,42 @@
 # One Family Merry-Go-Round
 
-A web app for one group that meets once a month. It keeps track of members, monthly contributions, loans, advances,
-interest, savings and bonuses. It is built with Next.js (TypeScript), stores its data in Supabase (PostgreSQL), and is
+A web app for one group that meets once a month. It keeps track of members, monthly contributions, the merry go round,
+advances, interest, savings and bonuses. It is built with Next.js (TypeScript), stores its data in Supabase (PostgreSQL), and is
 hosted on Vercel.
 
 ## Features
 
 | Page | What it does |
 |---|---|
-| **Group summary** | Total savings, total interest, loans and advances outstanding, cash at hand, the interest pool, bonuses, registration fees, unpaid interest, and a month-by-month table |
-| **Monthly records** | *Load group records for this month*: one row per member. The chairman types the **amount brought**, **loan repaid**, **advance repaid**, **new loan** and **new advance**. The app works out the interest, the savings added and the balances carried forward |
+| **Group summary** | Total savings, total interest, advances outstanding, merry go round paid out, cash at hand, the interest pool, bonuses, registration fees, unpaid interest, and a month-by-month table |
+| **Monthly records** | *Load group records for this month*: one row per member. The chairman picks who takes the **merry go round** and types the **amount brought**, **advance repaid**, **merry go round** contribution and **new advance**. The app works out the interest, the savings added and the balances carried forward |
+| **Merry go round** | Who took it each month, how much they received, and who is still waiting in the current round |
 | **Roll** | Locks the month and carries every balance into the next month. In the new month the manual fields are empty and the balances b/f and interest are already worked out |
-| **Member records** | Every member with their current savings, loan balance and advance balance. Each member has a page with their month-by-month transactions |
+| **Member records** | Every member with their current savings and advance balance. Each member has a page with their month-by-month transactions and the months they took the merry go round |
 | **Registration** | Registers a new member and records the registration fee they paid |
 | **Bonus** | Shares the interest pool out to members, either by savings or equally, and either credited to savings or paid in cash. It has several safeguards (see below) |
-| **Settings** | Interest rates, registration fee, opening balances, chairman accounts, undo last roll, and the audit trail (administrator only) |
+| **Settings** | Advance interest rate, registration fee, merry go round contribution, opening balances, chairman accounts, undo last roll, and the audit trail (administrator only) |
 
 ## How the money is calculated
 
 When a member brings cash, it is used in this order:
 
-1. **Loan interest**: 10% of the loan balance b/f, plus any loan interest left unpaid from earlier months
-2. **Advance interest**: 10% of the advance balance b/f, plus any advance interest left unpaid
-3. **Repayments**: the loan and advance repayments the chairman types
-4. **Savings**: whatever is left
+1. **Advance interest**: 10% of the advance balance b/f, plus any advance interest left unpaid from earlier months
+2. **Repayment**: the advance repayment the chairman types
+3. **Savings**: whatever is left
 
-* Interest is charged monthly on the balance carried into the month (reducing balance). A loan issued in January is
-  first charged interest in February. The rates can be changed in Settings; a new rate applies from the next roll.
+* Interest is charged monthly on the balance carried into the month (reducing balance). An advance issued in January is
+  first charged interest in February. The rate can be changed in Settings; a new rate applies from the next roll.
 * If a member brings less than the interest due, the unpaid part is carried forward as arrears. It is not added to the
-  loan, so it never earns interest itself. Repayments and savings are only possible after the interest is covered.
+  advance, so it never earns interest itself. Repayments and savings are only possible after the interest is covered.
+
+### Merry go round
+
+* Each month one member takes the merry go round. Every other member gives them the contribution set in Settings,
+  recorded in the **Merry go round** column. The member taking it does not contribute that month.
+* This money goes from the members straight to the recipient, so it is not part of the amount brought, savings or cash
+  at hand.
+* A round ends once every active member has taken it. The Merry go round page shows who has taken it this round.
 * Interest belongs to the group. It appears only in the Group summary. Member pages show amounts brought,
   repayments, savings and balances.
 
@@ -37,7 +45,7 @@ When a member brings cash, it is used in this order:
 * Every amount is stored and calculated as a **whole number of cents** (`BIGINT`). Rates are stored in basis points
   (10% = 1000). Amounts typed in are parsed digit by digit, never through decimal floats.
 * Interest is rounded half-up to the cent, using the same integer formula in the app and in SQL.
-* The database checks every monthly record before saving it: the amount brought must equal interest + repayments +
+* The database checks every monthly record before saving it: the amount brought must equal interest + repayment +
   savings, the balances must add up, interest must be paid first, and repayments cannot exceed the balance. A record
   that breaks any of these rules is refused, even if the app has a bug.
 * Bonus shares are split so they add up exactly to the total.
@@ -109,12 +117,12 @@ npm test                     # accounting rules tests
 ## First use
 
 1. Sign in as the administrator and create the chairman's account (**Settings**).
-2. Check the interest rates and the registration fee. If the group already has money, enter the **opening cash** and
+2. Check the advance interest rate, the registration fee and the merry go round contribution. If the group already has money, enter the **opening cash** and
    any **interest pool brought in**.
 3. **Register** all members. For a member who already has money in the group, fill in the **Opening balances**
-   section of the form (savings held, loan and advance still owed).
+   section of the form (savings held and advance still owed).
 4. Open **Monthly records** and **start the books** with the first month.
-5. Feed the month, save, and **Roll** when the meeting's records are complete.
+5. Choose who takes the merry go round, feed the month, save, and **Roll** when the meeting's records are complete.
 
 The brought-forward columns on Monthly records are never typed. In a member's first month they are the opening
 balances; after that the roll fills them in. Opening balances can be corrected on the member's page until their first
@@ -128,6 +136,7 @@ in the new month yet.
 ```
 supabase/schema.sql        tables, constraints, roll / undo / bonus / summary functions
 src/lib/ledger.ts          the accounting rules (shared by browser preview and server)
+src/lib/mgr.ts             merry go round rounds
 src/lib/money.ts           cents parsing/formatting
 src/app/(app)/             pages
 src/app/api/               server API routes (all check the login)

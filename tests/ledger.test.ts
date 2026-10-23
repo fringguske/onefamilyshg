@@ -1,14 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { computeEntry, interestOn, splitBonus, type Openings } from "../src/lib/ledger";
+import { rotation } from "../src/lib/mgr";
 import { parseMoney, formatMoney, parsePercent, formatPercent, centsToInput } from "../src/lib/money";
 
 const open = (o: Partial<Openings> = {}): Openings => ({
-  savings_open: 0, loan_bal_open: 0, advance_bal_open: 0, loan_interest_bf: 0, advance_interest_bf: 0,
-  loan_interest_charged: 0, advance_interest_charged: 0, bonus_credit: 0, ...o,
+  savings_open: 0, advance_bal_open: 0, advance_interest_bf: 0, advance_interest_charged: 0, bonus_credit: 0, ...o,
 });
 const inp = (m: Partial<Record<string, number>> = {}) => ({
-  amount_paid: 0, loan_repaid: 0, advance_repaid: 0, loan_issued: 0, advance_issued: 0, ...m,
+  amount_paid: 0, advance_repaid: 0, advance_issued: 0, mgr_contribution: 0, ...m,
 });
 
 test("money parsing never uses floats", () => {
@@ -42,67 +42,79 @@ test("10% interest rounds half-up to the cent", () => {
 });
 
 test("interest is deducted first, the rest becomes savings", () => {
-  const o = open({ loan_bal_open: 1000000, loan_interest_charged: 100000, savings_open: 500000 });
-  const { computed, errors } = computeEntry(o, inp({ amount_paid: 500000, loan_repaid: 200000 }));
+  const o = open({ advance_bal_open: 1000000, advance_interest_charged: 100000, savings_open: 500000 });
+  const { computed, errors } = computeEntry(o, inp({ amount_paid: 500000, advance_repaid: 200000 }));
   assert.deepEqual(errors, []);
-  assert.equal(computed.loan_interest_paid, 100000);
+  assert.equal(computed.advance_interest_paid, 100000);
   assert.equal(computed.savings_contribution, 200000);
-  assert.equal(computed.loan_bal_close, 800000);
+  assert.equal(computed.advance_bal_close, 800000);
   assert.equal(computed.savings_close, 700000);
-  assert.equal(computed.loan_interest_arrears, 0);
-});
-
-test("loan interest then advance interest", () => {
-  const o = open({ loan_bal_open: 100000, loan_interest_charged: 10000, advance_bal_open: 50000, advance_interest_charged: 5000 });
-  const r = computeEntry(o, inp({ amount_paid: 12000 }));
-  assert.deepEqual(r.errors, []);
-  assert.equal(r.computed.loan_interest_paid, 10000);
-  assert.equal(r.computed.advance_interest_paid, 2000);
-  assert.equal(r.computed.advance_interest_arrears, 3000);
-  assert.equal(r.computed.savings_contribution, 0);
+  assert.equal(computed.advance_interest_arrears, 0);
 });
 
 test("short payment carries interest arrears and blocks repayments", () => {
-  const o = open({ loan_bal_open: 100000, loan_interest_charged: 10000 });
+  const o = open({ advance_bal_open: 100000, advance_interest_charged: 10000 });
   const ok = computeEntry(o, inp({ amount_paid: 4000 }));
   assert.deepEqual(ok.errors, []);
-  assert.equal(ok.computed.loan_interest_arrears, 6000);
-  const bad = computeEntry(o, inp({ amount_paid: 4000, loan_repaid: 1000 }));
+  assert.equal(ok.computed.advance_interest_arrears, 6000);
+  const bad = computeEntry(o, inp({ amount_paid: 4000, advance_repaid: 1000 }));
   assert.equal(bad.errors.length, 1);
   assert.match(bad.errors[0], /Short by 70.00/);
 });
 
 test("cannot repay more than the balance", () => {
-  const r = computeEntry(open({ loan_bal_open: 1000 }), inp({ amount_paid: 5000, loan_repaid: 2000 }));
+  const r = computeEntry(open({ advance_bal_open: 1000 }), inp({ amount_paid: 5000, advance_repaid: 2000 }));
   assert.equal(r.errors.length, 1);
 });
 
-test("new loans and advances add to the balance", () => {
-  const r = computeEntry(open(), inp({ amount_paid: 100000, loan_issued: 3000000, advance_issued: 500000 }));
+test("new advances add to the balance", () => {
+  const r = computeEntry(open(), inp({ amount_paid: 100000, advance_issued: 500000 }));
   assert.deepEqual(r.errors, []);
-  assert.equal(r.computed.loan_bal_close, 3000000);
   assert.equal(r.computed.advance_bal_close, 500000);
   assert.equal(r.computed.savings_contribution, 100000);
+});
+
+test("merry go round contribution does not touch savings or interest", () => {
+  const o = open({ savings_open: 100000, advance_bal_open: 50000, advance_interest_charged: 5000 });
+  const a = computeEntry(o, inp({ amount_paid: 20000 }));
+  const b = computeEntry(o, inp({ amount_paid: 20000, mgr_contribution: 100000 }));
+  assert.deepEqual(b.errors, []);
+  assert.deepEqual(b.computed, a.computed);
 });
 
 test("identities hold for many random entries", () => {
   let seed = 42;
   const rnd = (n: number) => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed % n; };
   for (let i = 0; i < 20000; i++) {
-    const loan = rnd(5_000_000), adv = rnd(1_000_000);
-    const o = open({ savings_open: rnd(9_000_000), loan_bal_open: loan, advance_bal_open: adv,
-      loan_interest_bf: rnd(3) ? 0 : rnd(50_000), loan_interest_charged: interestOn(loan, 1000),
-      advance_interest_charged: interestOn(adv, 1000), bonus_credit: rnd(4) ? 0 : rnd(10_000) });
-    const m = inp({ amount_paid: rnd(2_000_000), loan_repaid: rnd(2) ? 0 : rnd(loan + 1), advance_repaid: rnd(2) ? 0 : rnd(adv + 1),
-      loan_issued: rnd(5) ? 0 : rnd(5_000_000) });
+    const adv = rnd(1_000_000);
+    const o = open({ savings_open: rnd(9_000_000), advance_bal_open: adv,
+      advance_interest_bf: rnd(3) ? 0 : rnd(50_000), advance_interest_charged: interestOn(adv, 1000),
+      bonus_credit: rnd(4) ? 0 : rnd(10_000) });
+    const m = inp({ amount_paid: rnd(2_000_000), advance_repaid: rnd(2) ? 0 : rnd(adv + 1),
+      advance_issued: rnd(5) ? 0 : rnd(5_000_000), mgr_contribution: rnd(2) ? 0 : rnd(500_000) });
     const { computed: c, errors } = computeEntry(o, m);
     if (errors.length) continue;
-    assert.equal(m.amount_paid, c.loan_interest_paid + c.advance_interest_paid + m.loan_repaid + m.advance_repaid + c.savings_contribution);
+    assert.equal(m.amount_paid, c.advance_interest_paid + m.advance_repaid + c.savings_contribution);
     assert.equal(c.savings_close, o.savings_open + c.savings_contribution + o.bonus_credit);
-    assert.equal(c.loan_bal_close, o.loan_bal_open + m.loan_issued - m.loan_repaid);
-    assert.equal(c.loan_interest_arrears + c.loan_interest_paid, o.loan_interest_bf + o.loan_interest_charged);
+    assert.equal(c.advance_bal_close, o.advance_bal_open + m.advance_issued - m.advance_repaid);
+    assert.equal(c.advance_interest_arrears + c.advance_interest_paid, o.advance_interest_bf + o.advance_interest_charged);
     for (const v of Object.values(c)) assert.ok(Number.isSafeInteger(v) && v >= 0);
   }
+});
+
+test("merry go round rounds", () => {
+  const m = (seq: number, member_id: string) => ({ period_id: `p${seq}`, seq, member_id });
+  const ids = ["a", "b", "c"];
+  const r1 = rotation([m(2, "b"), m(1, "a")], ids);
+  assert.equal(r1.round, 1);
+  assert.deepEqual([...r1.taken.keys()], ["a", "b"]);
+  const r2 = rotation([m(1, "a"), m(2, "b"), m(3, "c")], ids);
+  assert.equal(r2.round, 2);
+  assert.equal(r2.taken.size, 0);
+  const r3 = rotation([m(1, "a"), m(2, "b"), m(3, "c"), m(4, "b")], ids);
+  assert.equal(r3.round, 2);
+  assert.equal(r3.roundOf.get("p4"), 2);
+  assert.equal(r3.roundOf.get("p3"), 1);
 });
 
 test("bonus shares always add up exactly", () => {

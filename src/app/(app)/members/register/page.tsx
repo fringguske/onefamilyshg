@@ -8,7 +8,7 @@ import { centsToInput, formatMoney, parseMoney } from "@/lib/money";
 import type { Settings } from "@/lib/types";
 
 const today = () => new Date().toISOString().slice(0, 10);
-const EMPTY = { full_name: "", phone: "", national_id: "", joined_on: "", fee: "", notes: "", savings: "", loan: "", advance: "" };
+const EMPTY = { full_name: "", phone: "", national_id: "", joined_on: "", fee: "", notes: "", savings: "", advance: "" };
 
 export default function RegisterPage() {
   // the form is kept in the browser, so nothing is lost if you leave the page halfway
@@ -31,7 +31,7 @@ export default function RegisterPage() {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (fee === null) return setError("The registration fee is not a valid amount.");
-    const opening = { savings: parseMoney(form.savings), loan: parseMoney(form.loan), advance: parseMoney(form.advance) };
+    const opening = { savings: parseMoney(form.savings), advance: parseMoney(form.advance) };
     if (Object.values(opening).some((v) => v === null)) return setError("One of the opening balances is not a valid amount.");
     setBusy(true);
     setError("");
@@ -40,7 +40,7 @@ export default function RegisterPage() {
         body: {
           full_name: form.full_name, phone: form.phone, national_id: form.national_id, notes: form.notes,
           joined_on: form.joined_on || today(), registration_fee_cents: fee,
-          opening_savings_cents: opening.savings, opening_loan_cents: opening.loan, opening_advance_cents: opening.advance,
+          opening_savings_cents: opening.savings, opening_advance_cents: opening.advance,
         },
       });
       clearForm();
@@ -97,7 +97,6 @@ export default function RegisterPage() {
         </p>
         <div className="grid-form">
           <div className="field"><label htmlFor="os">Savings already held</label><MoneyInput id="os" value={form.savings} onChange={set("savings")} /></div>
-          <div className="field"><label htmlFor="ol">Loan balance still owed</label><MoneyInput id="ol" value={form.loan} onChange={set("loan")} /></div>
           <div className="field"><label htmlFor="oa">Advance balance still owed</label><MoneyInput id="oa" value={form.advance} onChange={set("advance")} /></div>
         </div>
         <div className="row">

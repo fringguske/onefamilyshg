@@ -12,10 +12,10 @@ export const GET = route(async () => {
   await requireUser();
   const members = check(await db().from("members").select("*").order("member_no"));
   const latest = check(await db().from("periods").select("id").order("seq", { ascending: false }).limit(1).maybeSingle());
-  const balances = new Map<string, { savings_close: number; loan_bal_close: number; advance_bal_close: number }>();
+  const balances = new Map<string, { savings_close: number; advance_bal_close: number }>();
   if (latest) {
     const rows = check(
-      await db().from("member_entries").select("member_id, savings_close, loan_bal_close, advance_bal_close").eq("period_id", latest.id),
+      await db().from("member_entries").select("member_id, savings_close, advance_bal_close").eq("period_id", latest.id),
     );
     for (const r of rows) balances.set(r.member_id, r);
   }
@@ -31,7 +31,6 @@ export const GET = route(async () => {
       registration_fee_cents: m.registration_fee_cents,
       status: m.status,
       savings: b?.savings_close ?? 0,
-      loan_balance: b?.loan_bal_close ?? 0,
       advance_balance: b?.advance_bal_close ?? 0,
     };
   });

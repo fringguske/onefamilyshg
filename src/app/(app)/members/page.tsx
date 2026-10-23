@@ -26,8 +26,8 @@ export default function MembersPage() {
   }, [members, q, showInactive]);
 
   const totals = list.reduce(
-    (t, m) => ({ s: t.s + m.savings, l: t.l + m.loan_balance, a: t.a + m.advance_balance, r: t.r + m.registration_fee_cents }),
-    { s: 0, l: 0, a: 0, r: 0 },
+    (t, m) => ({ s: t.s + m.savings, a: t.a + m.advance_balance, r: t.r + m.registration_fee_cents }),
+    { s: 0, a: 0, r: 0 },
   );
 
   return (
@@ -48,7 +48,7 @@ export default function MembersPage() {
             <thead>
               <tr>
                 <th>No.</th><th>Name</th><th>Phone</th><th>Joined</th><th>Status</th>
-                <th className="num">Reg. fee</th><th className="num">Savings</th><th className="num">Loan balance</th><th className="num">Advance balance</th>
+                <th className="num">Reg. fee</th><th className="num">Savings</th><th className="num">Advance balance</th>
               </tr>
             </thead>
             <tbody>
@@ -61,11 +61,10 @@ export default function MembersPage() {
                   <td><span className={`badge ${m.status === "active" ? "badge-open" : "badge-closed"}`}>{m.status}</span></td>
                   <td className="num"><Money cents={m.registration_fee_cents} /></td>
                   <td className="num"><Money cents={m.savings} /></td>
-                  <td className="num"><Money cents={m.loan_balance} dashZero /></td>
                   <td className="num"><Money cents={m.advance_balance} dashZero /></td>
                 </tr>
               ))}
-              {!list.length && <tr><td colSpan={9} className="muted">No members found.</td></tr>}
+              {!list.length && <tr><td colSpan={8} className="muted">No members found.</td></tr>}
             </tbody>
             {list.length > 0 && (
               <tfoot>
@@ -73,7 +72,6 @@ export default function MembersPage() {
                   <td colSpan={5}>Total ({list.length} members)</td>
                   <td className="num"><Money cents={totals.r} /></td>
                   <td className="num"><Money cents={totals.s} /></td>
-                  <td className="num"><Money cents={totals.l} /></td>
                   <td className="num"><Money cents={totals.a} /></td>
                 </tr>
               </tfoot>

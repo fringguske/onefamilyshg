@@ -2,7 +2,7 @@ import "server-only";
 import { isCents } from "./money";
 import { HttpError, text } from "./server";
 
-export const OPENING_COLUMNS = ["opening_savings_cents", "opening_loan_cents", "opening_advance_cents"] as const;
+export const OPENING_COLUMNS = ["opening_savings_cents", "opening_advance_cents"] as const;
 
 /** Validates member fields from a request body. */
 export function memberFields(body: Record<string, unknown>, isNew: boolean) {

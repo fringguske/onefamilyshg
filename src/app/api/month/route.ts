@@ -42,7 +42,8 @@ export const GET = route(async (req: Request) => {
   return NextResponse.json({
     period,
     rows,
-    rates: { loan_rate_bps: settings.loan_rate_bps, advance_rate_bps: settings.advance_rate_bps },
+    rates: { advance_rate_bps: settings.advance_rate_bps },
+    mgr_contribution_cents: settings.mgr_contribution_cents,
     currency: settings.currency,
   });
 });

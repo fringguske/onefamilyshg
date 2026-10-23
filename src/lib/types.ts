@@ -9,6 +9,7 @@ export interface Period {
   opened_at: string;
   closed_at: string | null;
   closed_by: string | null;
+  mgr_member_id: string | null;
 }
 
 export interface EntryRow extends Openings, ManualInputs, Computed {
@@ -27,9 +28,9 @@ export interface EntryRow extends Openings, ManualInputs, Computed {
 export interface Settings {
   group_name: string;
   currency: string;
-  loan_rate_bps: number;
   advance_rate_bps: number;
   registration_fee_cents: number;
+  mgr_contribution_cents: number;
   opening_cash_cents: number;
   opening_interest_pool_cents: number;
 }
@@ -44,6 +45,5 @@ export interface MemberListItem {
   registration_fee_cents: number;
   status: "active" | "inactive";
   savings: number;
-  loan_balance: number;
   advance_balance: number;
 }

@@ -6,11 +6,8 @@ import { formatMoney, isCents } from "./money";
 /** Values carried into the month by the roll (or typed once as opening balances). */
 export interface Openings {
   savings_open: number;
-  loan_bal_open: number;
   advance_bal_open: number;
-  loan_interest_bf: number;
   advance_interest_bf: number;
-  loan_interest_charged: number;
   advance_interest_charged: number;
   bonus_credit: number;
 }
@@ -18,45 +15,39 @@ export interface Openings {
 /** Values the chairman feeds each month. */
 export interface ManualInputs {
   amount_paid: number;
-  loan_repaid: number;
   advance_repaid: number;
-  loan_issued: number;
   advance_issued: number;
+  mgr_contribution: number;
 }
 
 /** Values the computer works out. */
 export interface Computed {
-  loan_interest_paid: number;
   advance_interest_paid: number;
   savings_contribution: number;
   savings_close: number;
-  loan_bal_close: number;
   advance_bal_close: number;
-  loan_interest_arrears: number;
   advance_interest_arrears: number;
 }
 
-export const MANUAL_FIELDS = ["amount_paid", "loan_repaid", "advance_repaid", "loan_issued", "advance_issued"] as const;
+export const MANUAL_FIELDS = ["amount_paid", "advance_repaid", "advance_issued", "mgr_contribution"] as const;
 
 /** rate x balance, rounded half-up to the cent. Same formula as interest_on() in SQL. */
 export function interestOn(balanceCents: number, rateBps: number): number {
   return Number((BigInt(balanceCents) * BigInt(rateBps) + 5000n) / 10000n);
 }
 
-export function interestDue(o: Openings) {
-  const loan = o.loan_interest_bf + o.loan_interest_charged;
-  const advance = o.advance_interest_bf + o.advance_interest_charged;
-  return { loan, advance, total: loan + advance };
+export function interestDue(o: Openings): number {
+  return o.advance_interest_bf + o.advance_interest_charged;
 }
 
 /**
  * Splits the cash a member brought:
- *   1. loan interest (incl. unpaid interest from earlier months)
- *   2. advance interest
- *   3. loan and advance repayments, as typed by the chairman
- *   4. whatever is left becomes savings
+ *   1. advance interest (incl. unpaid interest from earlier months)
+ *   2. the advance repayment typed by the chairman
+ *   3. whatever is left becomes savings
  * If the cash does not cover the interest, the unpaid interest is carried
- * forward as arrears (it is not added to the loan, so it never compounds).
+ * forward as arrears (it is not added to the advance, so it never compounds).
+ * The merry go round contribution is handed to the recipient, so it is not part of this.
  */
 export function computeEntry(o: Openings, m: ManualInputs): { computed: Computed; errors: string[] } {
   const errors: string[] = [];
@@ -66,52 +57,39 @@ export function computeEntry(o: Openings, m: ManualInputs): { computed: Computed
   if (errors.length) return { computed: emptyComputed(o), errors };
 
   const due = interestDue(o);
-  const loan_interest_paid = Math.min(m.amount_paid, due.loan);
-  let left = m.amount_paid - loan_interest_paid;
-  const advance_interest_paid = Math.min(left, due.advance);
-  left -= advance_interest_paid;
+  const advance_interest_paid = Math.min(m.amount_paid, due);
+  const left = m.amount_paid - advance_interest_paid;
 
-  if (m.loan_repaid > o.loan_bal_open) {
-    errors.push(`Loan repayment (${formatMoney(m.loan_repaid)}) is more than the loan balance (${formatMoney(o.loan_bal_open)}).`);
-  }
   if (m.advance_repaid > o.advance_bal_open) {
     errors.push(`Advance repayment (${formatMoney(m.advance_repaid)}) is more than the advance balance (${formatMoney(o.advance_bal_open)}).`);
   }
-  const repayments = m.loan_repaid + m.advance_repaid;
-  if (repayments > left) {
+  if (m.advance_repaid > left) {
     errors.push(
-      `Amount brought (${formatMoney(m.amount_paid)}) does not cover interest (${formatMoney(due.total)}) ` +
-        `plus repayments (${formatMoney(repayments)}). Short by ${formatMoney(due.total + repayments - m.amount_paid)}.`,
+      `Amount brought (${formatMoney(m.amount_paid)}) does not cover interest (${formatMoney(due)}) ` +
+        `plus repayment (${formatMoney(m.advance_repaid)}). Short by ${formatMoney(due + m.advance_repaid - m.amount_paid)}.`,
     );
   }
-  const savings_contribution = Math.max(0, left - repayments);
+  const savings_contribution = Math.max(0, left - m.advance_repaid);
 
   return {
     computed: {
-      loan_interest_paid,
       advance_interest_paid,
       savings_contribution,
       savings_close: o.savings_open + savings_contribution + o.bonus_credit,
-      loan_bal_close: o.loan_bal_open + m.loan_issued - m.loan_repaid,
       advance_bal_close: o.advance_bal_open + m.advance_issued - m.advance_repaid,
-      loan_interest_arrears: due.loan - loan_interest_paid,
-      advance_interest_arrears: due.advance - advance_interest_paid,
+      advance_interest_arrears: due - advance_interest_paid,
     },
     errors,
   };
 }
 
 function emptyComputed(o: Openings): Computed {
-  const due = interestDue(o);
   return {
-    loan_interest_paid: 0,
     advance_interest_paid: 0,
     savings_contribution: 0,
     savings_close: o.savings_open + o.bonus_credit,
-    loan_bal_close: o.loan_bal_open,
     advance_bal_close: o.advance_bal_open,
-    loan_interest_arrears: due.loan,
-    advance_interest_arrears: due.advance,
+    advance_interest_arrears: interestDue(o),
   };
 }
 
@@ -153,12 +131,10 @@ export function label(field: string): string {
   return (
     {
       amount_paid: "Amount brought",
-      loan_repaid: "Loan repaid",
       advance_repaid: "Advance repaid",
-      loan_issued: "New loan issued",
       advance_issued: "New advance issued",
+      mgr_contribution: "Merry go round",
       savings_open: "Savings b/f",
-      loan_bal_open: "Loan balance b/f",
       advance_bal_open: "Advance balance b/f",
     } as Record<string, string>
   )[field] ?? field;

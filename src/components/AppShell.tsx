@@ -7,6 +7,7 @@ import { api } from "@/lib/client";
 const NAV = [
   { href: "/", label: "Group summary" },
   { href: "/month", label: "Monthly records" },
+  { href: "/mgr", label: "Merry go round" },
   { href: "/members", label: "Member records" },
   { href: "/members/register", label: "Registration" },
   { href: "/bonus", label: "Bonus" },
