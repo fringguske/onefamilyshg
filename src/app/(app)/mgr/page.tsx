@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { Alert, Loading, Money, PageHeader, Stat } from "@/components/ui";
 import { api } from "@/lib/client";
 import { rotation } from "@/lib/mgr";
-import { formatMoney } from "@/lib/money";
 import { monthLabel } from "@/lib/period";
 
 interface Month {
@@ -66,7 +65,6 @@ export default function MgrPage() {
     <div className="stack">
       <PageHeader
         title="Merry go round"
-        subtitle={contribution ? <>Every member contributes <strong>{formatMoney(contribution)}</strong> a month. The total is given to one member.</> : undefined}
         actions={<Link className="btn btn-secondary" href="/month">Monthly records</Link>}
       />
       {!months.length && <Alert>Start the books under <Link href="/month">Monthly records</Link> first.</Alert>}
