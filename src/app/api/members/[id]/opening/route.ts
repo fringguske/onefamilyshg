@@ -41,7 +41,7 @@ export const PUT = route(async (req: Request, { params }: Ctx) => {
   if (entry) {
     const openings = firstMonthOpenings(next, entry.bonus_credit);
     const inputs = Object.fromEntries(MANUAL_FIELDS.map((k) => [k, entry[k]])) as unknown as ManualInputs;
-    const { computed, errors } = computeEntry(openings, inputs, await entryTerms(open!, id));
+    const { computed, errors } = computeEntry(openings, inputs, await entryTerms());
     if (errors.length) {
       throw new HttpError(422, `With these balances this month's figures no longer work: ${errors.join(" ")} Correct the month's figures first.`);
     }

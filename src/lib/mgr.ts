@@ -1,4 +1,4 @@
-// Merry go round rotation: every month one member takes what the others contribute.
+// Merry go round rotation: every month one member is given what the whole group contributed.
 // A round ends once every active member has taken it once.
 
 export interface RecipientMonth {

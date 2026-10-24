@@ -33,7 +33,7 @@ export interface Computed {
 /** Group terms that apply when a record is saved. */
 export interface Terms {
   advance_rate_bps: number;
-  /** the merry go round amount this member is expected to give (0 for the month's recipient) */
+  /** the merry go round amount every member gives, the month's recipient included */
   mgr_due: number;
 }
 

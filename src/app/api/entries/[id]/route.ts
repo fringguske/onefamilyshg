@@ -22,7 +22,7 @@ export const PUT = route(async (req: Request, { params }: Ctx) => {
   const { id } = await params;
   const body = await readJson<Body>(req);
 
-  const entry = check(await db().from("member_entries").select("*, period:periods!inner(id, seq, status, mgr_member_id)").eq("id", id).maybeSingle());
+  const entry = check(await db().from("member_entries").select("*, period:periods!inner(id, seq, status)").eq("id", id).maybeSingle());
   if (!entry) throw new HttpError(404, "Record not found.");
   if (entry.period.status !== "open") throw new HttpError(422, "This month has been rolled, so its records are locked.");
   if (!Number.isInteger(body.version)) throw new HttpError(400, "Invalid request.");
@@ -33,9 +33,6 @@ export const PUT = route(async (req: Request, { params }: Ctx) => {
     if (!isCents(v)) throw new HttpError(400, "One of the amounts is not valid.");
     inputs[k] = v;
   }
-  if (inputs.mgr_contribution > 0 && entry.period.mgr_member_id === entry.member_id) {
-    throw new HttpError(422, "This member takes the merry go round this month, so they do not contribute to it.");
-  }
 
   const openings: Openings = {
     savings_open: entry.savings_open,
@@ -45,7 +42,7 @@ export const PUT = route(async (req: Request, { params }: Ctx) => {
     bonus_credit: entry.bonus_credit,
   };
 
-  const { computed, errors } = computeEntry(openings, inputs, await entryTerms(entry.period, entry.member_id));
+  const { computed, errors } = computeEntry(openings, inputs, await entryTerms());
   if (errors.length) throw new HttpError(422, errors.join(" "));
 
   const saved = check(

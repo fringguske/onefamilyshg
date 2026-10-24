@@ -24,10 +24,10 @@ export function firstMonthOpenings(m: OpeningBalances, bonus_credit = 0): Openin
   };
 }
 
-/** The terms a member's record in a month is worked out with. */
-export async function entryTerms(period: { mgr_member_id: string | null }, memberId: string): Promise<Terms> {
+/** The terms every member's record is worked out with. */
+export async function entryTerms(): Promise<Terms> {
   const s = await getSettings();
-  return { advance_rate_bps: s.advance_rate_bps, mgr_due: period.mgr_member_id === memberId ? 0 : s.mgr_contribution_cents };
+  return { advance_rate_bps: s.advance_rate_bps, mgr_due: s.mgr_contribution_cents };
 }
 
 /**

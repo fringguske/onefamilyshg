@@ -229,6 +229,13 @@ tr.row-dirty td { background: #fffcf2; }
 .modal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
 .modal-head h2 { margin: 0; }
 
+/* ---------- banking statement ---------- */
+.statement td { padding: 6px 8px; }
+.statement .cell-hint { white-space: normal; }
+.statement-head td { background: var(--steel-tint); color: var(--slate); font-weight: 600; font-size: 0.85rem; }
+.statement-total td { font-weight: 700; border-top: 1px solid var(--slate); }
+.statement-grand td { font-weight: 700; background: var(--slate); color: var(--white); }
+
 /* ---------- login ---------- */
 .login-page { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 16px; background: var(--slate); }
 .login-card { width: 100%; max-width: 380px; background: var(--white); border-radius: 0; padding: 28px; }

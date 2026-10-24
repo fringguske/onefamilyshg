@@ -16,12 +16,14 @@ interface Data { months: Month[]; members: Member[]; contribution: number }
 export default function MgrPage() {
   const [data, setData] = useState<Data | null>(null);
   const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
 
+  const load = () => api<Data>("/api/mgr").then(setData, (e) => setError(e.message));
   useEffect(() => {
-    api<Data>("/api/mgr").then(setData, (e) => setError(e.message));
+    load();
   }, []);
 
-  if (error) return <Alert kind="error">{error}</Alert>;
+  if (error && !data) return <Alert kind="error">{error}</Alert>;
   if (!data) return <Loading />;
 
   const { months, members, contribution } = data;
@@ -41,26 +43,60 @@ export default function MgrPage() {
     months.filter((m) => m.mgr_member_id && roundOf.get(m.id) === round).map((m) => [m.mgr_member_id!, m]),
   );
   const current = open?.mgr_member_id ? byId.get(open.mgr_member_id) : undefined;
+  const tookLabel = (memberId: string) => {
+    const t = before.taken.get(memberId);
+    const m = t && months.find((x) => x.id === t.period_id);
+    return m ? ` (took it ${monthLabel(m.year, m.month)})` : "";
+  };
+
+  async function give(memberId: string) {
+    setBusy(true);
+    setError("");
+    try {
+      await api("/api/mgr", { method: "PUT", body: { period_id: open!.id, member_id: memberId || null } });
+      await load();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <div className="stack">
       <PageHeader
         title="Merry go round"
-        subtitle={contribution ? <>Each member gives <strong>{formatMoney(contribution)}</strong> to the member taking it.</> : undefined}
+        subtitle={contribution ? <>Every member contributes <strong>{formatMoney(contribution)}</strong> a month. The total is given to one member.</> : undefined}
         actions={<Link className="btn btn-secondary" href="/month">Monthly records</Link>}
       />
       {!months.length && <Alert>Start the books under <Link href="/month">Monthly records</Link> first.</Alert>}
+      {error && <Alert kind="error">{error}</Alert>}
 
       {open && (
-        <section className="stats">
-          <div className="stat stat-strong">
-            <div className="stat-label">{monthLabel(open.year, open.month)}</div>
-            <div className="stat-value">{current ? current.full_name : "Not chosen"}</div>
-            <div className="stat-hint">Round {round}</div>
+        <>
+          <section className="stats">
+            <div className="stat stat-strong">
+              <div className="stat-label">{monthLabel(open.year, open.month)}</div>
+              <div className="stat-value">{current ? current.full_name : "Not chosen"}</div>
+              <div className="stat-hint">Round {round}</div>
+            </div>
+            <Stat strong label="Collected this month" cents={open.total} hint={`From ${open.payers} member(s), fed under Monthly records`} />
+            <Stat label="Expected" cents={contribution * active.length} hint={`${active.length} active member(s)`} />
+          </section>
+          <div className="card">
+            <div className="row">
+              <label htmlFor="mgr-recipient"><strong>Give the {monthLabel(open.year, open.month)} merry go round to</strong></label>
+              <select id="mgr-recipient" value={open.mgr_member_id ?? ""} disabled={busy} onChange={(e) => give(e.target.value)}>
+                <option value="">Choose who takes it</option>
+                {active.map((m) => (
+                  <option key={m.id} value={m.id}>{m.member_no}. {m.full_name}{tookLabel(m.id)}</option>
+                ))}
+              </select>
+              <span className="spacer" />
+              {current && <span>{current.full_name} is given <strong><Money cents={open.total} /></strong></span>}
+            </div>
           </div>
-          <Stat strong label="Collected this month" cents={open.total} hint={`From ${open.payers} member(s)`} />
-          <Stat label="Expected" cents={contribution * Math.max(0, active.length - (current ? 1 : 0))} />
-        </section>
+        </>
       )}
 
       <section>

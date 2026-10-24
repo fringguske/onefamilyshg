@@ -91,7 +91,7 @@ test("the chairman can change the split; a repayment always pays the interest fi
   assert.equal(less.computed.savings_contribution, 140000);
 });
 
-test("the merry go round recipient is not expected to contribute", () => {
+test("with no merry go round amount set, only the interest and advance are expected", () => {
   const o = open({ advance_bal_open: 100000 });
   assert.equal(expectedAmount(o, 0), 100000);
   assert.deepEqual(autoSplit(o, 100000, 0), { advance_repaid: 100000, mgr_contribution: 0 });

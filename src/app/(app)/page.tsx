@@ -15,7 +15,7 @@ interface Summary {
   latest_period: { id: string; year: number; month: number; status: string } | null;
   total_savings: number; advances_outstanding: number; interest_arrears: number;
   total_collected: number; savings_contributed: number; advances_issued: number; advances_repaid: number;
-  advance_interest: number; transaction_costs: number; mgr_total: number; opening_interest: number; total_interest: number; bonus_total: number; bonus_cash: number; bonus_pool_available: number;
+  advance_interest: number; transaction_costs: number; mgr_total: number; mgr_paid: number; opening_interest: number; total_interest: number; bonus_total: number; bonus_cash: number; bonus_pool_available: number;
   registration_fees: number; opening_cash: number; cash_at_hand: number; active_members: number; all_members: number;
   by_month: MonthRow[];
 }
@@ -55,7 +55,7 @@ export default function SummaryPage() {
           s.transaction_costs ? `after ${fmt(s.transaction_costs)} transaction costs` : "",
         ].filter(Boolean).join(", ")} />
         <Stat strong label="Advances outstanding" cents={s.advances_outstanding} />
-        <Stat strong label="Merry go round paid out" cents={s.mgr_total} />
+        <Stat strong label="Merry go round paid out" cents={s.mgr_paid} hint={s.mgr_total > s.mgr_paid ? `${fmt(s.mgr_total - s.mgr_paid)} not given to anyone yet` : undefined} />
         <Stat label="Cash at hand" cents={s.cash_at_hand} hint="Opening cash + fees + collections - merry go round - advances handed over - transaction costs - cash bonuses" />
         <Stat label="Interest pool for bonus" cents={s.bonus_pool_available} hint="Interest from rolled months, less bonuses" />
         <Stat label="Bonuses issued" cents={s.bonus_total} />

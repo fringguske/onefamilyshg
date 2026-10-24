@@ -1,11 +1,11 @@
 "use client";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { BankingDialog } from "@/components/BankingDialog";
 import { MoneyInput } from "@/components/MoneyInput";
 import { Alert, Loading, Modal, Money, PageHeader } from "@/components/ui";
 import { api, readStore, track, useUnsavedWarning, writeStore } from "@/lib/client";
 import { autoSplit, computeEntry, expectedAmount, interestDue, MANUAL_FIELDS, type Computed, type ManualInputs, type Openings, type Terms } from "@/lib/ledger";
-import { rotation } from "@/lib/mgr";
 import { centsToInput, formatMoney, formatPercent, parseMoney } from "@/lib/money";
 import { MONTH_NAMES, monthLabel, nextMonth } from "@/lib/period";
 import type { EntryRow, Period } from "@/lib/types";
@@ -52,6 +52,7 @@ function MonthPage() {
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(false);
   const [rollOpen, setRollOpen] = useState(false);
+  const [bankingOpen, setBankingOpen] = useState(false);
   const [filter, setFilter] = useState("");
 
   const period = data?.period ?? null;
@@ -100,11 +101,11 @@ function MonthPage() {
   const dirtyIds = Object.keys(drafts);
   useUnsavedWarning(dirtyIds.length > 0);
 
-  /** The rate and merry go round amount a member's record is worked out with. */
+  /** The rate and merry go round amount every member's record is worked out with. */
   const terms = useCallback(
-    (row: EntryRow): Terms => ({
+    (): Terms => ({
       advance_rate_bps: data?.rates?.advance_rate_bps ?? 0,
-      mgr_due: row.member_id === data?.period?.mgr_member_id ? 0 : data?.mgr_contribution_cents ?? 0,
+      mgr_due: data?.mgr_contribution_cents ?? 0,
     }),
     [data],
   );
@@ -127,7 +128,7 @@ function MonthPage() {
         advance_interest_bf: row.advance_interest_bf, advance_interest_charged: row.advance_interest_charged,
         bonus_credit: row.bonus_credit,
       };
-      const t = terms(row);
+      const t = terms();
       const result = computeEntry(openings, inputs, t);
       const errors = result.errors;
       // saved figures are shown as saved; only typing is worked out again
@@ -152,7 +153,7 @@ function MonthPage() {
       // the chairman can still change them afterwards
       const paid = parseMoney(value);
       if (field === "amount_paid" && paid !== null) {
-        const split = autoSplit(row, paid, terms(row).mgr_due);
+        const split = autoSplit(row, paid, terms().mgr_due);
         next.f.advance_repaid = centsToInput(split.advance_repaid);
         next.f.mgr_contribution = centsToInput(split.mgr_contribution);
       }
@@ -241,25 +242,11 @@ function MonthPage() {
   const label = monthLabel(period.year, period.month);
   const nm = nextMonth(period.year, period.month);
   const openPeriod = periods.find((p) => p.status === "open");
-  const recipient = period.mgr_member_id;
-  const standard = data.mgr_contribution_cents ?? 0;
-  const contributors = rows.filter((r) => r.member.status === "active" && r.member_id !== recipient);
 
   async function saveCost(cents: number) {
     await api("/api/periods", { method: "PUT", body: { period_id: period!.id, transaction_cost: cents } });
     setData((d) => (d?.period ? { ...d, period: { ...d.period, transaction_cost: cents } } : d));
     setPeriods((ps) => ps && ps.map((p) => (p.id === period!.id ? { ...p, transaction_cost: cents } : p)));
-  }
-
-  async function chooseRecipient(memberId: string | null) {
-    setError("");
-    try {
-      await api("/api/mgr", { method: "PUT", body: { period_id: period!.id, member_id: memberId } });
-      setData((d) => (d?.period ? { ...d, period: { ...d.period, mgr_member_id: memberId } } : d));
-      setPeriods((ps) => ps && ps.map((p) => (p.id === period!.id ? { ...p, mgr_member_id: memberId } : p)));
-    } catch (e) {
-      setError((e as Error).message);
-    }
   }
 
   return (
@@ -284,6 +271,7 @@ function MonthPage() {
               {loading ? "Loading..." : "Load group records for this month"}
             </button>
             <button className="btn btn-secondary" onClick={() => { track("csv_exported"); exportCsv(label, rows, view); }}>Export CSV</button>
+            <button className="btn" onClick={() => setBankingOpen(true)}>View this month banking</button>
           </>
         }
       />
@@ -302,16 +290,6 @@ function MonthPage() {
           </div>
         </Alert>
       )}
-
-      <MgrBar
-        period={period}
-        periods={periods}
-        rows={rows}
-        editable={editable}
-        collected={totals.mgr}
-        expected={standard * contributors.length}
-        onChoose={chooseRecipient}
-      />
 
       <div className="row no-print">
         <input className="table-search" placeholder="Find member" value={filter} onChange={(e) => setFilter(e.target.value)} />
@@ -351,7 +329,6 @@ function MonthPage() {
             {shown.map((row) => {
               const v = view(row);
               const due = interestDue(v.openings);
-              const takes = row.member_id === recipient;
               const err = rowErrors[row.id] || (v.draft ? v.errors.join(" ") : "");
               const money = (k: ManualKey, lbl: string) => (
                 <td className="num" data-label={lbl}>
@@ -394,11 +371,7 @@ function MonthPage() {
                   <td className="num auto" data-label="Expected"><Money cents={v.expected} dashZero /></td>
                   {money("amount_paid", "Amount brought")}
                   {money("advance_repaid", "Advance repaid")}
-                  {takes ? (
-                    <td className="num auto" data-label="Merry go round">
-                      <span className="badge badge-open">Takes it</span>
-                    </td>
-                  ) : money("mgr_contribution", "Merry go round")}
+                  {money("mgr_contribution", "Merry go round")}
                   <td className="num auto" data-label="Savings added"><Money cents={v.computed.savings_contribution} dashZero /></td>
                   <td className="num" data-label="New advance">
                     {editable ? (
@@ -450,6 +423,8 @@ function MonthPage() {
           )}
         </table>
       </div>
+
+      {bankingOpen && <BankingDialog period={period} unsaved={editable ? dirtyIds.length : 0} onClose={() => setBankingOpen(false)} />}
 
       {rollOpen && editable && (
         <RollDialog
@@ -509,7 +484,7 @@ function RollDialog({ period, rows, rate, unsaved, onClose, onRolled }: {
       ) : (
         <>
           {!period.mgr_member_id && (
-            <Alert kind="warn">Nobody has been chosen to take the merry go round for {label}.</Alert>
+            <Alert kind="warn">Nobody has been given the merry go round for {label}. Choose who takes it under <a href="/mgr">Merry go round</a>.</Alert>
           )}
           {nothingBrought > 0 && (
             <Alert kind="warn">{nothingBrought} active member(s) have no amount recorded for {label}. Their unpaid interest will be carried forward.</Alert>
@@ -525,55 +500,6 @@ function RollDialog({ period, rows, rate, unsaved, onClose, onRolled }: {
         <button className="btn btn-secondary" onClick={onClose}>Cancel</button>
       </div>
     </Modal>
-  );
-}
-
-function MgrBar({ period, periods, rows, editable, collected, expected, onChoose }: {
-  period: Period; periods: Period[]; rows: EntryRow[]; editable: boolean; collected: number; expected: number;
-  onChoose: (memberId: string | null) => Promise<void>;
-}) {
-  const [busy, setBusy] = useState(false);
-  const earlier = periods
-    .filter((p) => p.mgr_member_id && p.seq < period.seq)
-    .map((p) => ({ period_id: p.id, seq: p.seq, member_id: p.mgr_member_id! }));
-  const active = rows.filter((r) => r.member.status === "active");
-  const { round, taken } = rotation(earlier, active.map((r) => r.member_id));
-  const takenLabel = (memberId: string) => {
-    const t = taken.get(memberId);
-    const p = t && periods.find((x) => x.id === t.period_id);
-    return p ? ` (took it ${monthLabel(p.year, p.month)})` : "";
-  };
-  const current = rows.find((r) => r.member_id === period.mgr_member_id);
-
-  async function choose(id: string) {
-    setBusy(true);
-    await onChoose(id || null);
-    setBusy(false);
-  }
-
-  return (
-    <div className="card">
-      <div className="row">
-        <strong>Merry go round, round {round}</strong>
-        {editable ? (
-          <select aria-label="Who takes the merry go round" value={period.mgr_member_id ?? ""} disabled={busy} onChange={(e) => choose(e.target.value)}>
-            <option value="">Choose who takes it</option>
-            {active.map((r) => (
-              <option key={r.member_id} value={r.member_id}>
-                {r.member.member_no}. {r.member.full_name}{takenLabel(r.member_id)}
-              </option>
-            ))}
-          </select>
-        ) : (
-          <span>{current ? current.member.full_name : "Nobody recorded"}</span>
-        )}
-        <span className="spacer" />
-        <span>
-          Collected <strong><Money cents={collected} /></strong>
-          {expected > 0 && <> of <Money cents={expected} /></>}
-        </span>
-      </div>
-    </div>
   );
 }
 

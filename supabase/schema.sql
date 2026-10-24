@@ -177,6 +177,32 @@ alter table member_entries
   drop constraint if exists entry_savings_identity,
   drop constraint if exists entry_deducted_cap;
 
+-- ---------------------------------------------------------------------
+-- Lock rolled months
+-- ---------------------------------------------------------------------
+create or replace function guard_closed_period() returns trigger
+language plpgsql as $$
+declare
+  st text;
+begin
+  if tg_op = 'UPDATE' and new.period_id <> old.period_id then
+    raise exception 'A record cannot be moved to another month.';
+  end if;
+  select status into st from periods where id = coalesce(new.period_id, old.period_id);
+  if st = 'closed' then
+    raise exception 'This month has been rolled, so its records are locked.';
+  end if;
+  if tg_op = 'DELETE' then
+    return old;
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists member_entries_guard on member_entries;
+create trigger member_entries_guard
+  before insert or update or delete on member_entries
+  for each row execute function guard_closed_period();
+
 -- The merry go round used to be handed over on top of the amount brought; it is now
 -- part of it. Add it to the amount brought of earlier records (rolled ones too) so
 -- they follow the same rule. Records already moved over no longer match the old rule.
@@ -265,47 +291,10 @@ alter table bonus_issues      enable row level security;
 alter table bonus_allocations enable row level security;
 alter table audit_log         enable row level security;
 
--- ---------------------------------------------------------------------
--- Lock rolled months
--- ---------------------------------------------------------------------
-create or replace function guard_closed_period() returns trigger
-language plpgsql as $$
-declare
-  st text;
-begin
-  if tg_op = 'UPDATE' and new.period_id <> old.period_id then
-    raise exception 'A record cannot be moved to another month.';
-  end if;
-  select status into st from periods where id = coalesce(new.period_id, old.period_id);
-  if st = 'closed' then
-    raise exception 'This month has been rolled, so its records are locked.';
-  end if;
-  if tg_op = 'DELETE' then
-    return old;
-  end if;
-  return new;
-end $$;
-
-drop trigger if exists member_entries_guard on member_entries;
-create trigger member_entries_guard
-  before insert or update or delete on member_entries
-  for each row execute function guard_closed_period();
-
--- the merry go round recipient does not contribute to themselves
-create or replace function guard_mgr_contribution() returns trigger
-language plpgsql as $$
-begin
-  if new.mgr_contribution > 0 and exists (select 1 from periods
-                                          where id = new.period_id and mgr_member_id = new.member_id) then
-    raise exception 'This member takes the merry go round this month, so they do not contribute to it.';
-  end if;
-  return new;
-end $$;
-
+-- Everyone contributes to the merry go round, the month's recipient included,
+-- so the old check that stopped the recipient contributing is removed.
 drop trigger if exists member_entries_mgr_guard on member_entries;
-create trigger member_entries_mgr_guard
-  before insert or update on member_entries
-  for each row execute function guard_mgr_contribution();
+drop function if exists guard_mgr_contribution();
 
 -- ---------------------------------------------------------------------
 -- Interest: rate x balance, rounded half-up to the nearest cent
@@ -568,14 +557,9 @@ begin
   if not found or cur.status <> 'open' then
     raise exception 'This month has been rolled, so its records are locked.';
   end if;
-  if p_member_id is not null then
-    if not exists (select 1 from member_entries where period_id = cur.id and member_id = p_member_id) then
-      raise exception 'This member is not in this month''s records.';
-    end if;
-    if exists (select 1 from member_entries
-               where period_id = cur.id and member_id = p_member_id and mgr_contribution > 0) then
-      raise exception 'This member already has a merry go round contribution recorded this month. Clear it first.';
-    end if;
+  if p_member_id is not null
+     and not exists (select 1 from member_entries where period_id = cur.id and member_id = p_member_id) then
+    raise exception 'This member is not in this month''s records.';
   end if;
   update periods set mgr_member_id = p_member_id where id = cur.id;
   insert into audit_log (actor, action, details)
@@ -615,6 +599,120 @@ language sql stable as $$
 $$;
 
 -- ---------------------------------------------------------------------
+-- MONTH BANKING: the cash statement of one month. Banking b/f is the opening
+-- cash plus everything banked and paid out in the earlier months, so the
+-- latest month's banking c/f is the cash at hand on the group summary.
+-- ---------------------------------------------------------------------
+create or replace function month_banking(p_period_id uuid) returns json
+language sql stable as $$
+  with bounds as (
+    select min(seq) as first_seq, max(seq) as last_seq from periods
+  ),
+  -- a registration fee is banked in the month the member joined; fees of members
+  -- who joined before the books were started are banked in the first month
+  fees as (
+    select greatest(b.first_seq, least(b.last_seq,
+             (extract(year from m.joined_on) * 12 + extract(month from m.joined_on) - 1)::integer)) as seq,
+           sum(m.registration_fee_cents) as fees
+    from members m cross join bounds b
+    group by 1
+  ),
+  ent as (
+    select period_id,
+           count(*)                                     as members,
+           count(*) filter (where amount_paid > 0)      as members_paid,
+           sum(amount_paid)                             as collected,
+           sum(savings_contribution)                    as savings,
+           sum(advance_interest_paid)                   as interest_paid,
+           sum(advance_repaid)                          as advances_repaid,
+           sum(mgr_contribution)                        as mgr_collected,
+           sum(advance_issued)                          as advances_issued,
+           sum(advance_interest_deducted)               as interest_cut,
+           sum(bonus_credit)                            as bonus_credited,
+           sum(savings_open)                            as savings_bf,
+           sum(savings_close)                           as savings_cf,
+           sum(advance_bal_open)                        as advances_bf,
+           sum(advance_bal_close)                       as advances_cf,
+           sum(advance_interest_bf + advance_interest_charged) as interest_due,
+           sum(advance_interest_arrears)                as interest_arrears
+    from member_entries
+    group by period_id
+  ),
+  cash_bonus as (
+    select period_id, sum(total_cents) as bonus_cash
+    from bonus_issues where voided_at is null and payout = 'cash'
+    group by period_id
+  ),
+  months as (
+    select p.id, p.seq, p.year, p.month, p.status, p.transaction_cost,
+           (select full_name from members where id = p.mgr_member_id) as mgr_recipient,
+           coalesce(f.fees, 0)               as fees,
+           coalesce(e.members, 0)            as members,
+           coalesce(e.members_paid, 0)       as members_paid,
+           coalesce(e.collected, 0)          as collected,
+           coalesce(e.savings, 0)            as savings,
+           coalesce(e.interest_paid, 0)      as interest_paid,
+           coalesce(e.advances_repaid, 0)    as advances_repaid,
+           coalesce(e.mgr_collected, 0)      as mgr_collected,
+           -- the merry go round leaves the bank once it is given to the recipient
+           case when p.mgr_member_id is null then 0 else coalesce(e.mgr_collected, 0) end as mgr_paid,
+           coalesce(e.advances_issued, 0)    as advances_issued,
+           coalesce(e.interest_cut, 0)       as interest_cut,
+           coalesce(e.bonus_credited, 0)     as bonus_credited,
+           coalesce(e.savings_bf, 0)         as savings_bf,
+           coalesce(e.savings_cf, 0)         as savings_cf,
+           coalesce(e.advances_bf, 0)        as advances_bf,
+           coalesce(e.advances_cf, 0)        as advances_cf,
+           coalesce(e.interest_due, 0)       as interest_due,
+           coalesce(e.interest_arrears, 0)   as interest_arrears,
+           coalesce(c.bonus_cash, 0)         as bonus_cash
+    from periods p
+    left join ent e        on e.period_id = p.id
+    left join fees f       on f.seq = p.seq
+    left join cash_bonus c on c.period_id = p.id
+  ),
+  flow as (
+    -- a new advance is handed over less the interest cut from it
+    select m.*, m.fees + m.collected - m.mgr_paid - (m.advances_issued - m.interest_cut)
+                - m.transaction_cost - m.bonus_cash as net
+    from months m
+  )
+  select json_build_object(
+    'period',           json_build_object('id', cur.id, 'year', cur.year, 'month', cur.month, 'status', cur.status),
+    'first_month',      cur.seq = (select first_seq from bounds),
+    'banking_bf',       bf.amount,
+    'fees',             cur.fees,
+    'collected',        cur.collected,
+    'savings',          cur.savings,
+    'interest_paid',    cur.interest_paid,
+    'advances_repaid',  cur.advances_repaid,
+    'mgr_collected',    cur.mgr_collected,
+    'mgr_paid',         cur.mgr_paid,
+    'mgr_recipient',    cur.mgr_recipient,
+    'advances_issued',  cur.advances_issued,
+    'interest_cut',     cur.interest_cut,
+    'transaction_cost', cur.transaction_cost,
+    'bonus_cash',       cur.bonus_cash,
+    'banking_cf',       bf.amount + cur.net,
+    'bonus_credited',   cur.bonus_credited,
+    'savings_bf',       cur.savings_bf,
+    'savings_cf',       cur.savings_cf,
+    'advances_bf',      cur.advances_bf,
+    'advances_cf',      cur.advances_cf,
+    'interest_due',     cur.interest_due,
+    'interest_arrears', cur.interest_arrears,
+    'members',          cur.members,
+    'members_paid',     cur.members_paid
+  )
+  from flow cur
+  cross join lateral (
+    select (select opening_cash_cents from settings where id = 1)
+         + coalesce((select sum(net) from flow where seq < cur.seq), 0) as amount
+  ) bf
+  where cur.id = p_period_id
+$$;
+
+-- ---------------------------------------------------------------------
 -- GROUP SUMMARY
 -- ---------------------------------------------------------------------
 create or replace function group_summary() returns json
@@ -635,8 +733,9 @@ language sql stable as $$
            coalesce(sum(advance_repaid), 0)        as advances_repaid,
            coalesce(sum(advance_interest_paid + advance_interest_deducted), 0) as advance_interest,
            coalesce(sum(advance_interest_deducted), 0) as interest_deducted,
-           coalesce(sum(mgr_contribution), 0)      as mgr_total
-    from member_entries
+           coalesce(sum(mgr_contribution), 0)      as mgr_total,
+           coalesce(sum(mgr_contribution) filter (where p.mgr_member_id is not null), 0) as mgr_paid
+    from member_entries e join periods p on p.id = e.period_id
   ),
   costs as (
     select coalesce(sum(transaction_cost), 0) as transaction_costs from periods
@@ -668,14 +767,15 @@ language sql stable as $$
     -- transaction costs are paid out of the interest
     'total_interest',       s.opening_interest_pool_cents + flows.advance_interest - costs.transaction_costs,
     'mgr_total',            flows.mgr_total,
+    'mgr_paid',             flows.mgr_paid,
     'bonus_total',          bon.bonus_total,
     'bonus_cash',           bon.bonus_cash,
     'bonus_pool_available', bonus_pool_cents(),
     'registration_fees',    mem.registration_fees,
     'opening_cash',         s.opening_cash_cents,
-    -- merry go round money is passed straight on to the recipient, and a new
-    -- advance is paid out less the interest cut from it
-    'cash_at_hand',         s.opening_cash_cents + mem.registration_fees + flows.total_collected - flows.mgr_total
+    -- merry go round money is given to the recipient once they are chosen, and a
+    -- new advance is paid out less the interest cut from it
+    'cash_at_hand',         s.opening_cash_cents + mem.registration_fees + flows.total_collected - flows.mgr_paid
                               - (flows.advances_issued - flows.interest_deducted) - costs.transaction_costs - bon.bonus_cash,
     'active_members',       mem.active_members,
     'all_members',          mem.all_members,
@@ -709,6 +809,7 @@ revoke execute on function bonus_pool_cents()                                   
 revoke execute on function members_with_history(integer)                               from public, anon, authenticated;
 revoke execute on function set_mgr_recipient(uuid, uuid, text)                         from public, anon, authenticated;
 revoke execute on function set_transaction_cost(uuid, bigint, text)                    from public, anon, authenticated;
+revoke execute on function month_banking(uuid)                                         from public, anon, authenticated;
 grant  execute on function start_books(integer, integer, text)                         to service_role;
 grant  execute on function roll_period(uuid, text)                                    to service_role;
 grant  execute on function undo_roll(text)                                            to service_role;
@@ -719,6 +820,7 @@ grant  execute on function bonus_pool_cents()                                   
 grant  execute on function members_with_history(integer)                              to service_role;
 grant  execute on function set_mgr_recipient(uuid, uuid, text)                        to service_role;
 grant  execute on function set_transaction_cost(uuid, bigint, text)                   to service_role;
+grant  execute on function month_banking(uuid)                                        to service_role;
 
 -- ---------------------------------------------------------------------
 -- Table access for the server key. Newer Supabase projects no longer
