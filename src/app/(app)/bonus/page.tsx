@@ -80,7 +80,7 @@ export default function BonusPage() {
       {success && <Alert kind="success">{success}</Alert>}
 
       <section className="stats">
-        <Stat strong label="Interest pool available" cents={info.pool} hint="From months that have been rolled, less bonuses already issued" />
+        <Stat strong label="Interest pool available" cents={info.pool} hint="Interest and fines from months that have been rolled, less bonuses already issued" />
       </section>
 
       {!info.period ? (

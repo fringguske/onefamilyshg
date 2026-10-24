@@ -11,7 +11,12 @@ export interface Period {
   closed_by: string | null;
   mgr_member_id: string | null;
   transaction_cost: number;
+  /** the account the month's transaction cost is paid from */
+  transaction_cost_from: CostAccount;
 }
+
+export const COST_ACCOUNTS = ["interest", "registration_fees"] as const;
+export type CostAccount = (typeof COST_ACCOUNTS)[number];
 
 export interface EntryRow extends Openings, ManualInputs, Computed {
   id: string;
@@ -32,6 +37,7 @@ export interface Settings {
   advance_rate_bps: number;
   registration_fee_cents: number;
   mgr_contribution_cents: number;
+  fine_cents: number;
   opening_cash_cents: number;
   opening_interest_pool_cents: number;
 }

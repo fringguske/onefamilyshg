@@ -32,6 +32,8 @@ create table if not exists settings (
 insert into settings (id) values (1) on conflict (id) do nothing;
 -- what each member gives the merry go round recipient every month
 alter table settings add column if not exists mgr_contribution_cents bigint not null default 0 check (mgr_contribution_cents >= 0);
+-- the fine cut from every member each month, out of the amount brought (KES 20)
+alter table settings add column if not exists fine_cents bigint not null default 2000 check (fine_cents >= 0);
 alter table settings drop column if exists loan_rate_bps;
 
 -- ---------------------------------------------------------------------
@@ -113,6 +115,9 @@ alter table periods add column if not exists mgr_member_id uuid references membe
 -- what the group paid in transaction costs this month (e.g. sending money);
 -- taken out of the interest pool, never out of any member's money
 alter table periods add column if not exists transaction_cost bigint not null default 0 check (transaction_cost >= 0);
+-- the account the transaction cost is paid from: the interest or the registration fees
+alter table periods add column if not exists transaction_cost_from text not null default 'interest'
+  check (transaction_cost_from in ('interest', 'registration_fees'));
 
 -- ---------------------------------------------------------------------
 -- Member transactions: one row per member per month
@@ -152,6 +157,8 @@ create table if not exists member_entries (
 alter table member_entries add column if not exists mgr_contribution bigint not null default 0;
 -- interest cut from this month's new advance: the member receives advance_issued minus this
 alter table member_entries add column if not exists advance_interest_deducted bigint not null default 0;
+-- the monthly fine paid by this member, out of the amount brought
+alter table member_entries add column if not exists fine_paid bigint not null default 0;
 -- transaction costs are kept once per month on periods, not per member
 alter table member_entries drop column if exists transaction_cost;
 
@@ -232,12 +239,12 @@ alter table member_entries
   add constraint entry_non_negative check (
     savings_open >= 0 and advance_bal_open >= 0 and
     advance_interest_bf >= 0 and advance_interest_charged >= 0 and advance_interest_due >= 0 and
-    amount_paid >= 0 and advance_repaid >= 0 and advance_issued >= 0 and mgr_contribution >= 0 and
+    amount_paid >= 0 and advance_repaid >= 0 and advance_issued >= 0 and mgr_contribution >= 0 and fine_paid >= 0 and
     advance_interest_deducted >= 0 and advance_interest_paid >= 0 and savings_contribution >= 0 and bonus_credit >= 0 and savings_close >= 0 and
     advance_bal_close >= 0 and advance_interest_arrears >= 0),
   -- the cash brought is fully accounted for
   add constraint entry_cash_identity check (
-    amount_paid = advance_interest_paid + advance_repaid + mgr_contribution + savings_contribution),
+    amount_paid = advance_interest_paid + advance_repaid + mgr_contribution + fine_paid + savings_contribution),
   -- interest is never over-collected
   add constraint entry_interest_cap check (advance_interest_paid <= advance_interest_due),
   -- interest is deducted before any of the advance is repaid
@@ -429,7 +436,7 @@ begin
   end if;
   if exists (select 1 from member_entries
              where period_id = cur.id
-               and (amount_paid + advance_repaid + advance_issued + mgr_contribution + bonus_credit > 0
+               and (amount_paid + advance_repaid + advance_issued + mgr_contribution + fine_paid + bonus_credit > 0
                     or advance_interest_due <> advance_interest_bf + advance_interest_charged
                     or coalesce(btrim(notes), '') <> ''))
      or cur.mgr_member_id is not null or cur.transaction_cost > 0 then
@@ -449,17 +456,19 @@ begin
 end $$;
 
 -- ---------------------------------------------------------------------
--- Interest pool available for bonuses, less the transaction costs paid.
+-- Interest pool available for bonuses: advance interest and fines, less the
+-- transaction costs paid from it.
 -- Only interest from ROLLED (locked) months counts, so a later correction
 -- of the open month can never make an issued bonus exceed the pool.
 -- ---------------------------------------------------------------------
 create or replace function bonus_pool_cents() returns bigint
 language sql stable as $$
   select (select opening_interest_pool_cents from settings where id = 1)
-       + coalesce((select sum(e.advance_interest_paid + e.advance_interest_deducted)
+       + coalesce((select sum(e.advance_interest_paid + e.advance_interest_deducted + e.fine_paid)
                    from member_entries e join periods p on p.id = e.period_id
                    where p.status = 'closed'), 0)
-       - coalesce((select sum(transaction_cost) from periods where status = 'closed'), 0)
+       - coalesce((select sum(transaction_cost) from periods
+                   where status = 'closed' and transaction_cost_from = 'interest'), 0)
        - coalesce((select sum(total_cents) from bonus_issues where voided_at is null), 0)
 $$;
 
@@ -581,12 +590,27 @@ begin
 end $$;
 
 -- ---------------------------------------------------------------------
--- TRANSACTION COST: what the group paid in the open month (one amount)
+-- Registration fees left once the transaction costs paid from them are taken out
+-- (optionally leaving out one month, so its cost can be changed)
 -- ---------------------------------------------------------------------
-create or replace function set_transaction_cost(p_period_id uuid, p_amount bigint, p_actor text) returns void
+create or replace function registration_fees_left(p_except uuid default null) returns bigint
+language sql stable as $$
+  select coalesce((select sum(registration_fee_cents) from members), 0)
+       - coalesce((select sum(transaction_cost) from periods
+                   where transaction_cost_from = 'registration_fees'
+                     and id is distinct from p_except), 0)
+$$;
+
+-- ---------------------------------------------------------------------
+-- TRANSACTION COST: what the group paid in the open month (one amount),
+-- and the account it is paid from (the interest or the registration fees)
+-- ---------------------------------------------------------------------
+drop function if exists set_transaction_cost(uuid, bigint, text);
+create or replace function set_transaction_cost(p_period_id uuid, p_amount bigint, p_from text, p_actor text) returns void
 language plpgsql as $$
 declare
-  cur periods%rowtype;
+  cur  periods%rowtype;
+  left_ bigint;
 begin
   perform pg_advisory_xact_lock(424242);
   select * into cur from periods where id = p_period_id for update;
@@ -596,9 +620,20 @@ begin
   if p_amount is null or p_amount < 0 then
     raise exception 'The transaction cost cannot be negative.';
   end if;
-  update periods set transaction_cost = p_amount where id = cur.id;
+  if p_from is null or p_from not in ('interest', 'registration_fees') then
+    raise exception 'Choose where the transaction cost is paid from.';
+  end if;
+  if p_from = 'registration_fees' then
+    left_ := registration_fees_left(cur.id);
+    if p_amount > left_ then
+      raise exception 'The registration fees left (%) are less than the transaction cost.', to_char(left_ / 100.0, 'FM999,999,999,990.00');
+    end if;
+  end if;
+  update periods set transaction_cost = p_amount, transaction_cost_from = p_from where id = cur.id;
   insert into audit_log (actor, action, details)
-    values (p_actor, 'transaction_cost_set', jsonb_build_object('period_id', cur.id, 'from', cur.transaction_cost, 'to', p_amount));
+    values (p_actor, 'transaction_cost_set', jsonb_build_object(
+      'period_id', cur.id, 'from', cur.transaction_cost, 'to', p_amount,
+      'account_from', cur.transaction_cost_from, 'account_to', p_from));
 end $$;
 
 -- ---------------------------------------------------------------------
@@ -640,6 +675,7 @@ language sql stable as $$
            sum(advance_interest_paid)                   as interest_paid,
            sum(advance_repaid)                          as advances_repaid,
            sum(mgr_contribution)                        as mgr_collected,
+           sum(fine_paid)                               as fines,
            sum(advance_issued)                          as advances_issued,
            sum(advance_interest_deducted)               as interest_cut,
            sum(bonus_credit)                            as bonus_credited,
@@ -658,7 +694,7 @@ language sql stable as $$
     group by period_id
   ),
   months as (
-    select p.id, p.seq, p.year, p.month, p.status, p.transaction_cost,
+    select p.id, p.seq, p.year, p.month, p.status, p.transaction_cost, p.transaction_cost_from,
            (select full_name from members where id = p.mgr_member_id) as mgr_recipient,
            coalesce(f.fees, 0)               as fees,
            coalesce(e.members, 0)            as members,
@@ -668,6 +704,7 @@ language sql stable as $$
            coalesce(e.interest_paid, 0)      as interest_paid,
            coalesce(e.advances_repaid, 0)    as advances_repaid,
            coalesce(e.mgr_collected, 0)      as mgr_collected,
+           coalesce(e.fines, 0)              as fines,
            -- the merry go round leaves the bank once it is given to the recipient
            case when p.mgr_member_id is null then 0 else coalesce(e.mgr_collected, 0) end as mgr_paid,
            coalesce(e.advances_issued, 0)    as advances_issued,
@@ -703,9 +740,11 @@ language sql stable as $$
     'mgr_collected',    cur.mgr_collected,
     'mgr_paid',         cur.mgr_paid,
     'mgr_recipient',    cur.mgr_recipient,
+    'fines',            cur.fines,
     'advances_issued',  cur.advances_issued,
     'interest_cut',     cur.interest_cut,
     'transaction_cost', cur.transaction_cost,
+    'transaction_cost_from', cur.transaction_cost_from,
     'bonus_cash',       cur.bonus_cash,
     'banking_cf',       bf.amount + cur.net,
     'bonus_credited',   cur.bonus_credited,
@@ -748,11 +787,15 @@ language sql stable as $$
            coalesce(sum(advance_interest_paid + advance_interest_deducted), 0) as advance_interest,
            coalesce(sum(advance_interest_deducted), 0) as interest_deducted,
            coalesce(sum(mgr_contribution), 0)      as mgr_total,
+           coalesce(sum(fine_paid), 0)             as fines,
            coalesce(sum(mgr_contribution) filter (where p.mgr_member_id is not null), 0) as mgr_paid
     from member_entries e join periods p on p.id = e.period_id
   ),
   costs as (
-    select coalesce(sum(transaction_cost), 0) as transaction_costs from periods
+    select coalesce(sum(transaction_cost), 0)                                                         as transaction_costs,
+           coalesce(sum(transaction_cost) filter (where transaction_cost_from = 'interest'), 0)          as costs_from_interest,
+           coalesce(sum(transaction_cost) filter (where transaction_cost_from = 'registration_fees'), 0) as costs_from_fees
+    from periods
   ),
   bon as (
     select coalesce(sum(total_cents) filter (where voided_at is null), 0)                      as bonus_total,
@@ -778,14 +821,19 @@ language sql stable as $$
     'advance_interest',     flows.advance_interest,
     'opening_interest',     s.opening_interest_pool_cents,
     'transaction_costs',    costs.transaction_costs,
-    -- transaction costs are paid out of the interest
-    'total_interest',       s.opening_interest_pool_cents + flows.advance_interest - costs.transaction_costs,
+    'costs_from_interest',  costs.costs_from_interest,
+    'costs_from_fees',      costs.costs_from_fees,
+    -- fines go into the interest pool; each month's transaction cost is paid out of
+    -- the interest or the registration fees
+    'total_interest',       s.opening_interest_pool_cents + flows.advance_interest + flows.fines - costs.costs_from_interest,
+    'fines',                flows.fines,
     'mgr_total',            flows.mgr_total,
     'mgr_paid',             flows.mgr_paid,
     'bonus_total',          bon.bonus_total,
     'bonus_cash',           bon.bonus_cash,
     'bonus_pool_available', bonus_pool_cents(),
     'registration_fees',    mem.registration_fees,
+    'registration_fees_left', mem.registration_fees - costs.costs_from_fees,
     'opening_cash',         s.opening_cash_cents,
     -- merry go round money is given to the recipient once they are chosen, and a
     -- new advance is paid out less the interest cut from it
@@ -804,6 +852,8 @@ language sql stable as $$
                coalesce(sum(e.advance_issued), 0)          as advances_issued,
                coalesce(sum(e.advance_repaid), 0)          as advances_repaid,
                p.transaction_cost                          as transaction_costs,
+               p.transaction_cost_from                     as transaction_cost_from,
+               coalesce(sum(e.fine_paid), 0)               as fines,
                coalesce(sum(e.mgr_contribution), 0)        as mgr_total
         from periods p left join member_entries e on e.period_id = p.id
         group by p.id
@@ -822,7 +872,8 @@ revoke execute on function group_summary()                                      
 revoke execute on function bonus_pool_cents()                                          from public, anon, authenticated;
 revoke execute on function members_with_history(integer)                               from public, anon, authenticated;
 revoke execute on function set_mgr_recipient(uuid, uuid, text)                         from public, anon, authenticated;
-revoke execute on function set_transaction_cost(uuid, bigint, text)                    from public, anon, authenticated;
+revoke execute on function set_transaction_cost(uuid, bigint, text, text)              from public, anon, authenticated;
+revoke execute on function registration_fees_left(uuid)                                from public, anon, authenticated;
 revoke execute on function month_banking(uuid)                                         from public, anon, authenticated;
 grant  execute on function start_books(integer, integer, text)                         to service_role;
 grant  execute on function roll_period(uuid, text)                                    to service_role;
@@ -833,7 +884,8 @@ grant  execute on function group_summary()                                      
 grant  execute on function bonus_pool_cents()                                         to service_role;
 grant  execute on function members_with_history(integer)                              to service_role;
 grant  execute on function set_mgr_recipient(uuid, uuid, text)                        to service_role;
-grant  execute on function set_transaction_cost(uuid, bigint, text)                   to service_role;
+grant  execute on function set_transaction_cost(uuid, bigint, text, text)             to service_role;
+grant  execute on function registration_fees_left(uuid)                               to service_role;
 grant  execute on function month_banking(uuid)                                        to service_role;
 
 -- ---------------------------------------------------------------------

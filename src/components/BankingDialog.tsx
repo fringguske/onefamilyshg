@@ -4,15 +4,15 @@ import { Alert, Loading, Modal } from "@/components/ui";
 import { api } from "@/lib/client";
 import { formatMoney } from "@/lib/money";
 import { monthLabel } from "@/lib/period";
-import type { Period } from "@/lib/types";
+import type { CostAccount, Period } from "@/lib/types";
 
 /** What month_banking() in the database returns. */
 interface Banking {
   first_month: boolean;
   banking_bf: number; banking_cf: number;
   fees: number; collected: number; savings: number; interest_paid: number; advances_repaid: number;
-  mgr_collected: number; mgr_paid: number; mgr_recipient: string | null;
-  advances_issued: number; interest_cut: number; transaction_cost: number; bonus_cash: number;
+  mgr_collected: number; mgr_paid: number; mgr_recipient: string | null; fines: number;
+  advances_issued: number; interest_cut: number; transaction_cost: number; transaction_cost_from: CostAccount; bonus_cash: number;
   bonus_credited: number; savings_bf: number; savings_cf: number; advances_bf: number; advances_cf: number;
   interest_due: number; interest_arrears: number; members: number; members_paid: number;
 }
@@ -43,8 +43,10 @@ function Statement({ b }: { b: Banking }) {
   const banked = b.collected + b.fees;
   const handedOver = b.advances_issued - b.interest_cut;
   const paidOut = handedOver + b.mgr_paid + b.transaction_cost + b.bonus_cash;
-  const interest = b.interest_paid + b.interest_cut;
+  const interest = b.interest_paid + b.interest_cut + b.fines;
   const mgrHeld = b.mgr_collected - b.mgr_paid;
+  const costFromFees = b.transaction_cost_from === "registration_fees";
+  const interestCost = costFromFees ? 0 : b.transaction_cost;
 
   return (
     <div className="stack">
@@ -56,6 +58,7 @@ function Statement({ b }: { b: Banking }) {
           <Line label="Advance repayments" cents={b.advances_repaid} />
           <Line label="Interest paid" cents={b.interest_paid} />
           <Line label="Merry go round contributions" cents={b.mgr_collected} />
+          {b.fines > 0 && <Line label="Fines" cents={b.fines} />}
           {b.fees > 0 && <Line label="Registration fees" cents={b.fees} />}
           <Line total label="Total banked" cents={banked} />
           <Head>Paid out this month</Head>
@@ -69,7 +72,11 @@ function Statement({ b }: { b: Banking }) {
             hint={mgrHeld ? `${formatMoney(mgrHeld)} kept in the bank until someone is chosen to take it` : undefined}
             cents={b.mgr_paid}
           />
-          <Line label="Transaction costs" cents={b.transaction_cost} />
+          <Line
+            label="Transaction costs"
+            hint={b.transaction_cost ? `Paid from the ${costFromFees ? "registration fees" : "interest"}` : undefined}
+            cents={b.transaction_cost}
+          />
           {b.bonus_cash > 0 && <Line label="Bonuses paid in cash" cents={b.bonus_cash} />}
           <Line total label="Total paid out" cents={paidOut} />
           <Line grand label="Current banking" cents={b.banking_cf} />
@@ -87,9 +94,18 @@ function Statement({ b }: { b: Banking }) {
           <Line label="Interest due on advances" cents={b.interest_due} />
           <Line label="Interest paid" cents={b.interest_paid} />
           <Line label="Interest cut from new advances" cents={b.interest_cut} />
-          <Line label="Less transaction costs" cents={b.transaction_cost} />
-          <Line total label="Interest earned after costs" cents={interest - b.transaction_cost} />
+          {b.fines > 0 && <Line label="Fines" cents={b.fines} />}
+          <Line label="Less transaction costs" cents={interestCost} />
+          <Line total label={b.fines ? "Interest and fines after costs" : "Interest earned after costs"} cents={interest - interestCost} />
           {b.interest_arrears > 0 && <Line label="Unpaid interest carried forward" cents={b.interest_arrears} />}
+          {costFromFees && b.transaction_cost > 0 && (
+            <>
+              <Head>Registration fees</Head>
+              <Line label="Registration fees banked this month" cents={b.fees} />
+              <Line label="Less transaction costs" cents={b.transaction_cost} />
+              <Line total label="Registration fees after costs" cents={b.fees - b.transaction_cost} />
+            </>
+          )}
           <Head>Savings</Head>
           <Line label="Savings at the start of the month" cents={b.savings_bf} />
           <Line label="Savings added" cents={b.savings} />

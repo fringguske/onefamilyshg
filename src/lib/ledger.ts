@@ -18,6 +18,8 @@ export interface ManualInputs {
   advance_repaid: number;
   advance_issued: number;
   mgr_contribution: number;
+  /** the monthly fine, out of the amount brought */
+  fine_paid: number;
   /** interest due this month: starts as what the roll worked out, the chairman can change it */
   advance_interest_due: number;
 }
@@ -33,13 +35,19 @@ export interface Computed {
 }
 
 /** Group terms that apply when a record is saved. */
-export interface Terms {
+export interface Terms extends Dues {
   advance_rate_bps: number;
-  /** the merry go round amount every member gives, the month's recipient included */
-  mgr_due: number;
 }
 
-export const MANUAL_FIELDS = ["amount_paid", "advance_repaid", "advance_issued", "mgr_contribution", "advance_interest_due"] as const;
+/** The fixed amounts every member is expected to bring each month. */
+export interface Dues {
+  /** the merry go round amount every member gives, the month's recipient included */
+  mgr_due: number;
+  /** the fine cut from every member each month */
+  fine_due: number;
+}
+
+export const MANUAL_FIELDS = ["amount_paid", "advance_repaid", "advance_issued", "mgr_contribution", "fine_paid", "advance_interest_due"] as const;
 
 /** rate x balance, rounded half-up to the cent. Same formula as interest_on() in SQL. */
 export function interestOn(balanceCents: number, rateBps: number): number {
@@ -51,27 +59,31 @@ export function interestDue(o: Openings): number {
   return o.advance_interest_bf + o.advance_interest_charged;
 }
 
-/** What the member is expected to bring this month: interest due, the whole advance b/f and the merry go round. */
-export function expectedAmount(o: Openings, interest: number, mgrDue: number): number {
-  return interest + o.advance_bal_open + mgrDue;
+/** What the member is expected to bring this month: interest due, the whole advance b/f, the merry go round and the fine. */
+export function expectedAmount(o: Openings, interest: number, d: Dues): number {
+  return interest + o.advance_bal_open + d.mgr_due + d.fine_due;
 }
 
 /**
- * How the chairman's sheet fills the advance repayment and merry go round
- * when an amount brought is typed: if it covers what is expected, both are
- * taken in full and the rest is savings; if it is short, all of it is savings.
- * The chairman can change either amount afterwards.
+ * How the chairman's sheet fills the advance repayment, merry go round and
+ * fine when an amount brought is typed: if it covers what is expected, all
+ * are taken in full and the rest is savings; if it is short, all of it is
+ * savings. The chairman can change any of them afterwards.
  */
-export function autoSplit(o: Openings, amountPaid: number, interest: number, mgrDue: number) {
-  const covered = amountPaid >= expectedAmount(o, interest, mgrDue);
-  return { advance_repaid: covered ? o.advance_bal_open : 0, mgr_contribution: covered ? mgrDue : 0 };
+export function autoSplit(o: Openings, amountPaid: number, interest: number, d: Dues) {
+  const covered = amountPaid >= expectedAmount(o, interest, d);
+  return {
+    advance_repaid: covered ? o.advance_bal_open : 0,
+    mgr_contribution: covered ? d.mgr_due : 0,
+    fine_paid: covered ? d.fine_due : 0,
+  };
 }
 
 /**
  * Splits the cash a member brought:
  *   1. the interest due (as typed by the chairman), but only
  *      when the member brought everything expected or is repaying the advance
- *   2. the advance repayment and merry go round contribution
+ *   2. the advance repayment, merry go round contribution and fine
  *   3. whatever is left becomes savings
  * Unpaid interest is carried forward as arrears (it is not added to the
  * advance, so it never compounds).
@@ -86,9 +98,9 @@ export function computeEntry(o: Openings, m: ManualInputs, t: Terms): { computed
   if (errors.length) return { computed: emptyComputed(o), errors };
 
   const due = m.advance_interest_due;
-  const covered = m.amount_paid >= expectedAmount(o, due, t.mgr_due);
+  const covered = m.amount_paid >= expectedAmount(o, due, t);
   const advance_interest_paid = covered || m.advance_repaid > 0 ? due : 0;
-  const used = advance_interest_paid + m.advance_repaid + m.mgr_contribution;
+  const used = advance_interest_paid + m.advance_repaid + m.mgr_contribution + m.fine_paid;
 
   if (m.advance_repaid > o.advance_bal_open) {
     errors.push(`Advance repayment (${formatMoney(m.advance_repaid)}) is more than the advance balance (${formatMoney(o.advance_bal_open)}).`);
@@ -98,6 +110,7 @@ export function computeEntry(o: Openings, m: ManualInputs, t: Terms): { computed
       advance_interest_paid && `interest (${formatMoney(advance_interest_paid)})`,
       m.advance_repaid && `repayment (${formatMoney(m.advance_repaid)})`,
       m.mgr_contribution && `merry go round (${formatMoney(m.mgr_contribution)})`,
+      m.fine_paid && `fine (${formatMoney(m.fine_paid)})`,
     ].filter(Boolean);
     errors.push(
       `Amount brought (${formatMoney(m.amount_paid)}) does not cover ${parts.join(" plus ")}. ` +
@@ -171,6 +184,7 @@ export function label(field: string): string {
       advance_repaid: "Advance repaid",
       advance_issued: "New advance issued",
       mgr_contribution: "Merry go round",
+      fine_paid: "Fine",
       advance_interest_due: "Interest due",
       savings_open: "Savings b/f",
       advance_bal_open: "Advance balance b/f",

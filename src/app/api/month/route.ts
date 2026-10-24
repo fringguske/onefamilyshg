@@ -44,6 +44,7 @@ export const GET = route(async (req: Request) => {
     rows,
     rates: { advance_rate_bps: settings.advance_rate_bps },
     mgr_contribution_cents: settings.mgr_contribution_cents,
+    fine_cents: settings.fine_cents,
     currency: settings.currency,
   });
 });

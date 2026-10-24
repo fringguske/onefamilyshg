@@ -8,7 +8,7 @@ export interface OpeningBalances {
   opening_advance_cents: number;
 }
 
-const ZERO_INPUTS = { amount_paid: 0, advance_repaid: 0, advance_issued: 0, mgr_contribution: 0, advance_interest_due: 0 };
+const ZERO_INPUTS = { amount_paid: 0, advance_repaid: 0, advance_issued: 0, mgr_contribution: 0, fine_paid: 0, advance_interest_due: 0 };
 
 /**
  * Balances b/f for a member's first month: their opening balances. The interest
@@ -27,7 +27,7 @@ export function firstMonthOpenings(m: OpeningBalances, bonus_credit = 0): Openin
 /** The terms every member's record is worked out with. */
 export async function entryTerms(): Promise<Terms> {
   const s = await getSettings();
-  return { advance_rate_bps: s.advance_rate_bps, mgr_due: s.mgr_contribution_cents };
+  return { advance_rate_bps: s.advance_rate_bps, mgr_due: s.mgr_contribution_cents, fine_due: s.fine_cents };
 }
 
 /**
@@ -59,7 +59,7 @@ export async function ensureOpenEntries(actor: string, onlyMemberIds?: string[])
         period_id: open.id,
         member_id: m.id,
         ...openingColumns,
-        ...computeEntry(openings, ZERO_INPUTS, { advance_rate_bps: settings.advance_rate_bps, mgr_due: 0 }).computed,
+        ...computeEntry(openings, ZERO_INPUTS, { advance_rate_bps: settings.advance_rate_bps, mgr_due: 0, fine_due: 0 }).computed,
         updated_by: actor,
       };
     });

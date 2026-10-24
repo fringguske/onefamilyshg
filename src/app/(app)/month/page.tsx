@@ -8,7 +8,7 @@ import { api, readStore, track, useUnsavedWarning, writeStore } from "@/lib/clie
 import { autoSplit, computeEntry, expectedAmount, interestDue, MANUAL_FIELDS, type Computed, type ManualInputs, type Openings, type Terms } from "@/lib/ledger";
 import { centsToInput, formatMoney, formatPercent, parseMoney } from "@/lib/money";
 import { MONTH_NAMES, monthLabel, nextMonth } from "@/lib/period";
-import type { EntryRow, Period } from "@/lib/types";
+import { COST_ACCOUNTS, type CostAccount, type EntryRow, type Period } from "@/lib/types";
 
 type ManualKey = (typeof MANUAL_FIELDS)[number];
 
@@ -24,6 +24,7 @@ interface MonthData {
   rows: EntryRow[];
   rates?: { advance_rate_bps: number };
   mgr_contribution_cents?: number;
+  fine_cents?: number;
   currency?: string;
 }
 
@@ -101,11 +102,12 @@ function MonthPage() {
   const dirtyIds = Object.keys(drafts);
   useUnsavedWarning(dirtyIds.length > 0);
 
-  /** The rate and merry go round amount every member's record is worked out with. */
+  /** The rate, merry go round amount and fine every member's record is worked out with. */
   const terms = useCallback(
     (): Terms => ({
       advance_rate_bps: data?.rates?.advance_rate_bps ?? 0,
       mgr_due: data?.mgr_contribution_cents ?? 0,
+      fine_due: data?.fine_cents ?? 0,
     }),
     [data],
   );
@@ -134,7 +136,7 @@ function MonthPage() {
       // saved figures are shown as saved; only typing is worked out again
       const computed: Computed = d ? result.computed : row;
       if (invalid) errors.unshift("One of the amounts is not a valid number (use digits, up to 2 decimals).");
-      const expected = expectedAmount(openings, inputs.advance_interest_due, t.mgr_due);
+      const expected = expectedAmount(openings, inputs.advance_interest_due, t);
       return { text, inputs, openings, computed, errors, expected, draft: d, conflict: !!d && d.base !== row.version };
     },
     [drafts, terms],
@@ -149,14 +151,15 @@ function MonthPage() {
       };
       const next: Draft = { ...cur, f: { ...cur.f } };
       next.f[field] = value;
-      // a new amount brought (or interest due) fills the advance repayment and
-      // merry go round again; the chairman can still change them afterwards
+      // a new amount brought (or interest due) fills the advance repayment,
+      // merry go round and fine again; the chairman can still change them afterwards
       const paid = parseMoney(next.f.amount_paid);
       const due = parseMoney(next.f.advance_interest_due);
       if ((field === "amount_paid" || field === "advance_interest_due") && paid !== null && due !== null) {
-        const split = autoSplit(row, paid, due, terms().mgr_due);
+        const split = autoSplit(row, paid, due, terms());
         next.f.advance_repaid = centsToInput(split.advance_repaid);
         next.f.mgr_contribution = centsToInput(split.mgr_contribution);
+        next.f.fine_paid = centsToInput(split.fine_paid);
       }
       // a draft that matches the saved record is not a draft any more
       const same = MANUAL_FIELDS.every((k) => parseMoney(next.f[k]) === row[k]);
@@ -222,12 +225,12 @@ function MonthPage() {
   }, [rows, filter]);
 
   const totals = useMemo(() => {
-    const t = { sb: 0, ab: 0, due: 0, exp: 0, paid: 0, ar: 0, mgr: 0, sav: 0, ai: 0, sc: 0, ac: 0 };
+    const t = { sb: 0, ab: 0, due: 0, exp: 0, paid: 0, ar: 0, mgr: 0, fine: 0, sav: 0, ai: 0, sc: 0, ac: 0 };
     for (const r of rows) {
       const v = view(r);
       t.sb += v.openings.savings_open; t.ab += v.openings.advance_bal_open;
       t.due += v.inputs.advance_interest_due; t.exp += v.expected; t.paid += v.inputs.amount_paid; t.ar += v.inputs.advance_repaid;
-      t.mgr += v.inputs.mgr_contribution; t.sav += v.computed.savings_contribution;
+      t.mgr += v.inputs.mgr_contribution; t.fine += v.inputs.fine_paid; t.sav += v.computed.savings_contribution;
       t.ai += v.inputs.advance_issued; t.sc += v.computed.savings_close; t.ac += v.computed.advance_bal_close;
     }
     return t;
@@ -244,10 +247,11 @@ function MonthPage() {
   const nm = nextMonth(period.year, period.month);
   const openPeriod = periods.find((p) => p.status === "open");
 
-  async function saveCost(cents: number) {
-    await api("/api/periods", { method: "PUT", body: { period_id: period!.id, transaction_cost: cents } });
-    setData((d) => (d?.period ? { ...d, period: { ...d.period, transaction_cost: cents } } : d));
-    setPeriods((ps) => ps && ps.map((p) => (p.id === period!.id ? { ...p, transaction_cost: cents } : p)));
+  async function saveCost(cents: number, from: CostAccount) {
+    await api("/api/periods", { method: "PUT", body: { period_id: period!.id, transaction_cost: cents, transaction_cost_from: from } });
+    const set = (p: Period) => ({ ...p, transaction_cost: cents, transaction_cost_from: from });
+    setData((d) => (d?.period ? { ...d, period: set(d.period) } : d));
+    setPeriods((ps) => ps && ps.map((p) => (p.id === period!.id ? set(p) : p)));
   }
 
   return (
@@ -303,7 +307,7 @@ function MonthPage() {
         )}
       </div>
 
-      <TransactionCost key={period.id} saved={period.transaction_cost} editable={editable} onSave={saveCost} />
+      <TransactionCost key={period.id} saved={period.transaction_cost} savedFrom={period.transaction_cost_from} editable={editable} onSave={saveCost} />
 
       <div className="table-wrap sheet">
         <table>
@@ -312,7 +316,7 @@ function MonthPage() {
               <th rowSpan={2}>Member</th>
               <th className="group" colSpan={2}>Brought forward (auto)</th>
               <th className="group" colSpan={2}>Due</th>
-              <th className="group" colSpan={3}>Fed this month</th>
+              <th className="group" colSpan={4}>Fed this month</th>
               <th className="group" colSpan={1}>Auto</th>
               <th className="group" colSpan={1}>Issued this month</th>
               <th className="group" colSpan={2}>Carried forward (auto)</th>
@@ -320,7 +324,7 @@ function MonthPage() {
             </tr>
             <tr>
               <th className="num">Savings</th><th className="num">Advance</th>
-              <th className="num">Interest due</th><th className="num">Expected</th><th className="num">Amount brought</th><th className="num">Advance repaid</th><th className="num">Merry go round</th>
+              <th className="num">Interest due</th><th className="num">Expected</th><th className="num">Amount brought</th><th className="num">Advance repaid</th><th className="num">Merry go round</th><th className="num">Fine</th>
               <th className="num">Savings added</th>
               <th className="num">New advance</th>
               <th className="num">Savings</th><th className="num">Advance</th>
@@ -380,6 +384,7 @@ function MonthPage() {
                   {money("amount_paid", "Amount brought")}
                   {money("advance_repaid", "Advance repaid")}
                   {money("mgr_contribution", "Merry go round")}
+                  {money("fine_paid", "Fine")}
                   <td className="num auto" data-label="Savings added"><Money cents={v.computed.savings_contribution} dashZero /></td>
                   <td className="num" data-label="New advance">
                     {editable ? (
@@ -408,7 +413,7 @@ function MonthPage() {
                 </tr>
               );
             })}
-            {!shown.length && <tr><td colSpan={13} className="muted">No members in this month. Register members first.</td></tr>}
+            {!shown.length && <tr><td colSpan={14} className="muted">No members in this month. Register members first.</td></tr>}
           </tbody>
           {rows.length > 0 && (
             <tfoot>
@@ -421,6 +426,7 @@ function MonthPage() {
                 <td className="num"><Money cents={totals.paid} /></td>
                 <td className="num"><Money cents={totals.ar} /></td>
                 <td className="num"><Money cents={totals.mgr} /></td>
+                <td className="num"><Money cents={totals.fine} /></td>
                 <td className="num"><Money cents={totals.sav} /></td>
                 <td className="num"><Money cents={totals.ai} /></td>
                 <td className="num"><Money cents={totals.sc} /></td>
@@ -511,20 +517,25 @@ function RollDialog({ period, rows, rate, unsaved, onClose, onRolled }: {
   );
 }
 
-/** One amount for the whole month, paid by the group out of the interest pool. */
-function TransactionCost({ saved, editable, onSave }: { saved: number; editable: boolean; onSave: (cents: number) => Promise<void> }) {
+const COST_FROM: Record<CostAccount, string> = { interest: "the interest", registration_fees: "the registration fees" };
+
+/** One amount for the whole month, paid by the group out of the interest or the registration fees. */
+function TransactionCost({ saved, savedFrom, editable, onSave }: {
+  saved: number; savedFrom: CostAccount; editable: boolean; onSave: (cents: number, from: CostAccount) => Promise<void>;
+}) {
   const [text, setText] = useState(centsToInput(saved));
+  const [from, setFrom] = useState<CostAccount>(savedFrom);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ kind: "error" | "success"; text: string } | null>(null);
   const cents = parseMoney(text);
-  const changed = cents !== saved;
+  const changed = cents !== saved || from !== savedFrom;
 
   async function save() {
     if (cents === null) return;
     setBusy(true);
     setMsg(null);
     try {
-      await onSave(cents);
+      await onSave(cents, from);
       setMsg({ kind: "success", text: "Saved" });
     } catch (e) {
       setMsg({ kind: "error", text: (e as Error).message });
@@ -539,14 +550,19 @@ function TransactionCost({ saved, editable, onSave }: { saved: number; editable:
       {editable ? (
         <>
           <MoneyInput id="transaction-cost" value={text} onChange={(v) => { setText(v); setMsg(null); }} />
+          <select aria-label="Paid from" value={from} onChange={(e) => { setFrom(e.target.value as CostAccount); setMsg(null); }}>
+            {COST_ACCOUNTS.map((a) => <option key={a} value={a}>Paid from {COST_FROM[a]}</option>)}
+          </select>
           <button className="btn btn-small no-print" disabled={busy || !changed || cents === null} onClick={save}>{busy ? "Saving" : "Save"}</button>
           {msg && !changed && msg.kind === "success" && <span className="badge badge-saved">Saved</span>}
           {msg?.kind === "error" && <span className="row-errors">{msg.text}</span>}
         </>
       ) : (
-        <Money cents={saved} />
+        <>
+          <Money cents={saved} />
+          <span className="small muted">Paid from {COST_FROM[savedFrom]}</span>
+        </>
       )}
-      <span className="small muted">Taken from the interest pool</span>
     </div>
   );
 }
@@ -599,7 +615,7 @@ function StartBooks({ onStarted }: { onStarted: () => void }) {
 function exportCsv(label: string, rows: EntryRow[], view: (r: EntryRow) => {
   openings: Openings; inputs: ManualInputs; computed: Computed; expected: number;
 }) {
-  const head = ["No", "Member", "Savings b/f", "Advance b/f", "Interest due", "Expected", "Amount brought", "Advance repaid", "Merry go round",
+  const head = ["No", "Member", "Savings b/f", "Advance b/f", "Interest due", "Expected", "Amount brought", "Advance repaid", "Merry go round", "Fine",
     "Interest paid", "Savings added", "Bonus to savings", "New advance", "Interest cut", "Cash handed over", "Savings c/f", "Advance c/f"];
   const m = (c: number) => formatMoney(c).replace(/,/g, "");
   const lines = rows.map((r) => {
@@ -607,7 +623,7 @@ function exportCsv(label: string, rows: EntryRow[], view: (r: EntryRow) => {
     const cut = v.computed.advance_interest_deducted;
     return [r.member.member_no, `"${r.member.full_name.replace(/"/g, '""')}"`, m(v.openings.savings_open),
       m(v.openings.advance_bal_open), m(v.inputs.advance_interest_due), m(v.expected), m(v.inputs.amount_paid), m(v.inputs.advance_repaid),
-      m(v.inputs.mgr_contribution), m(v.computed.advance_interest_paid), m(v.computed.savings_contribution),
+      m(v.inputs.mgr_contribution), m(v.inputs.fine_paid), m(v.computed.advance_interest_paid), m(v.computed.savings_contribution),
       m(v.openings.bonus_credit), m(v.inputs.advance_issued), m(cut), m(v.inputs.advance_issued - cut),
       m(v.computed.savings_close), m(v.computed.advance_bal_close)].join(",");
   });

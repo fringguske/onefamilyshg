@@ -32,8 +32,8 @@ export default function MemberPage() {
   const { member: m, entries, bonuses, mgr_received } = data;
   const latest = entries[0];
   const totals = entries.reduce(
-    (t, e) => ({ paid: t.paid + e.amount_paid, saved: t.saved + e.savings_contribution, mgr: t.mgr + e.mgr_contribution, ai: t.ai + e.advance_issued, ar: t.ar + e.advance_repaid }),
-    { paid: 0, saved: 0, mgr: 0, ai: 0, ar: 0 },
+    (t, e) => ({ paid: t.paid + e.amount_paid, saved: t.saved + e.savings_contribution, mgr: t.mgr + e.mgr_contribution, fine: t.fine + e.fine_paid, ai: t.ai + e.advance_issued, ar: t.ar + e.advance_repaid }),
+    { paid: 0, saved: 0, mgr: 0, fine: 0, ai: 0, ar: 0 },
   );
 
   return (
@@ -60,7 +60,7 @@ export default function MemberPage() {
           <table>
             <thead>
               <tr>
-                <th>Month</th><th className="num">Amount brought</th><th className="num">Advance repaid</th><th className="num">Merry go round</th>
+                <th>Month</th><th className="num">Amount brought</th><th className="num">Advance repaid</th><th className="num">Merry go round</th><th className="num">Fine</th>
                 <th className="num">Savings added</th><th className="num">Bonus</th><th className="num">Advance issued</th>
                 <th className="num">Savings c/f</th><th className="num">Advance c/f</th>
               </tr>
@@ -72,6 +72,7 @@ export default function MemberPage() {
                   <td className="num"><Money cents={e.amount_paid} dashZero /></td>
                   <td className="num"><Money cents={e.advance_repaid} dashZero /></td>
                   <td className="num"><Money cents={e.mgr_contribution} dashZero /></td>
+                  <td className="num"><Money cents={e.fine_paid} dashZero /></td>
                   <td className="num"><Money cents={e.savings_contribution} dashZero /></td>
                   <td className="num"><Money cents={e.bonus_credit} dashZero /></td>
                   <td className="num"><Money cents={e.advance_issued} dashZero /></td>
@@ -79,7 +80,7 @@ export default function MemberPage() {
                   <td className="num"><Money cents={e.advance_bal_close} /></td>
                 </tr>
               ))}
-              {!entries.length && <tr><td colSpan={9} className="muted">No monthly records yet.</td></tr>}
+              {!entries.length && <tr><td colSpan={10} className="muted">No monthly records yet.</td></tr>}
             </tbody>
             {entries.length > 0 && (
               <tfoot>
@@ -88,6 +89,7 @@ export default function MemberPage() {
                   <td className="num"><Money cents={totals.paid} /></td>
                   <td className="num"><Money cents={totals.ar} /></td>
                   <td className="num"><Money cents={totals.mgr} /></td>
+                  <td className="num"><Money cents={totals.fine} /></td>
                   <td className="num"><Money cents={totals.saved} /></td>
                   <td></td>
                   <td className="num"><Money cents={totals.ai} /></td>
