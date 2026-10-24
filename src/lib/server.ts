@@ -67,6 +67,10 @@ export function check(res: { data: unknown; error: { message: string; code?: str
 /** Explains the usual set-up mistakes (schema not run, wrong key, wrong URL) instead of a generic error. */
 function setupError(code: string | undefined, message: string): HttpError | null {
   console.error("Database error", code, message);
+  if (code === "PGRST202" || code === "42883") {
+    const fn = /function (?:public\.)?(\w+)/i.exec(message)?.[1];
+    return new HttpError(500, `Database set-up: the database is missing a function this page needs${fn ? ` (${fn})` : ""}. Run the latest supabase/schema.sql in the Supabase SQL Editor and check that it finishes without an error, then reload this page.`);
+  }
   if (code === "42P01" || code === "PGRST205" || code === "PGRST202" || /does not exist|schema cache/i.test(message)) {
     return new HttpError(500, "Database set-up: the tables are missing. Run supabase/schema.sql in the Supabase SQL Editor, then reload this page.");
   }

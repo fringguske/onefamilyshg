@@ -213,10 +213,25 @@ update member_entries
    and amount_paid = advance_interest_paid + advance_repaid + savings_contribution;
 alter table member_entries enable trigger member_entries_guard;
 
+-- Interest due is fed by the chairman. It starts as what the roll worked out
+-- (unpaid b/f + this month's charge) and can be changed. When the column is
+-- first added, earlier records get exactly what the roll worked out for them.
+do $$
+begin
+  if not exists (select 1 from information_schema.columns
+                 where table_schema = 'public' and table_name = 'member_entries'
+                   and column_name = 'advance_interest_due') then
+    alter table member_entries add column advance_interest_due bigint not null default 0;
+    alter table member_entries disable trigger member_entries_guard;
+    update member_entries set advance_interest_due = advance_interest_bf + advance_interest_charged;
+    alter table member_entries enable trigger member_entries_guard;
+  end if;
+end $$;
+
 alter table member_entries
   add constraint entry_non_negative check (
     savings_open >= 0 and advance_bal_open >= 0 and
-    advance_interest_bf >= 0 and advance_interest_charged >= 0 and
+    advance_interest_bf >= 0 and advance_interest_charged >= 0 and advance_interest_due >= 0 and
     amount_paid >= 0 and advance_repaid >= 0 and advance_issued >= 0 and mgr_contribution >= 0 and
     advance_interest_deducted >= 0 and advance_interest_paid >= 0 and savings_contribution >= 0 and bonus_credit >= 0 and savings_close >= 0 and
     advance_bal_close >= 0 and advance_interest_arrears >= 0),
@@ -224,19 +239,17 @@ alter table member_entries
   add constraint entry_cash_identity check (
     amount_paid = advance_interest_paid + advance_repaid + mgr_contribution + savings_contribution),
   -- interest is never over-collected
-  add constraint entry_interest_cap check (
-    advance_interest_paid <= advance_interest_bf + advance_interest_charged),
+  add constraint entry_interest_cap check (advance_interest_paid <= advance_interest_due),
   -- interest is deducted before any of the advance is repaid
   add constraint entry_interest_first check (
-    advance_repaid = 0 or
-    advance_interest_paid = advance_interest_bf + advance_interest_charged),
+    advance_repaid = 0 or advance_interest_paid = advance_interest_due),
   -- the interest cut from a new advance is never more than the advance
   add constraint entry_deducted_cap check (advance_interest_deducted <= advance_issued),
   -- you cannot repay more than what was owed at the start of the month
   add constraint entry_repay_cap check (advance_repaid <= advance_bal_open),
   add constraint entry_advance_identity check (advance_bal_close = advance_bal_open + advance_issued - advance_repaid),
   add constraint entry_arrears_identity check (
-    advance_interest_arrears = advance_interest_bf + advance_interest_charged - advance_interest_paid),
+    advance_interest_arrears = advance_interest_due - advance_interest_paid),
   add constraint entry_savings_identity check (savings_close = savings_open + savings_contribution + bonus_credit);
 create index if not exists member_entries_member on member_entries (member_id);
 
@@ -372,11 +385,11 @@ begin
 
   insert into member_entries (
     period_id, member_id,
-    savings_open, advance_bal_open, advance_interest_bf, advance_interest_charged,
+    savings_open, advance_bal_open, advance_interest_bf, advance_interest_charged, advance_interest_due,
     savings_close, advance_bal_close, advance_interest_arrears)
   select
     nid, x.member_id,
-    x.savings_close, x.advance_bal_close, x.advance_interest_arrears, x.ai,
+    x.savings_close, x.advance_bal_close, x.advance_interest_arrears, x.ai, x.advance_interest_arrears + x.ai,
     x.savings_close, x.advance_bal_close, x.advance_interest_arrears + x.ai
   from (
     -- an advance issued without its interest cut (one saved before interest was cut
@@ -417,6 +430,7 @@ begin
   if exists (select 1 from member_entries
              where period_id = cur.id
                and (amount_paid + advance_repaid + advance_issued + mgr_contribution + bonus_credit > 0
+                    or advance_interest_due <> advance_interest_bf + advance_interest_charged
                     or coalesce(btrim(notes), '') <> ''))
      or cur.mgr_member_id is not null or cur.transaction_cost > 0 then
     raise exception 'Records have already been fed for the new month. Clear them first, then undo the roll.';
@@ -633,7 +647,7 @@ language sql stable as $$
            sum(savings_close)                           as savings_cf,
            sum(advance_bal_open)                        as advances_bf,
            sum(advance_bal_close)                       as advances_cf,
-           sum(advance_interest_bf + advance_interest_charged) as interest_due,
+           sum(advance_interest_due)                    as interest_due,
            sum(advance_interest_arrears)                as interest_arrears
     from member_entries
     group by period_id
@@ -833,3 +847,6 @@ grant all on table settings, app_users, members, periods, member_entries,
 grant usage, select on all sequences in schema public to service_role;
 revoke all on table settings, app_users, members, periods, member_entries,
                     bonus_issues, bonus_allocations, audit_log from anon, authenticated;
+
+-- make the Supabase API pick up new and changed functions straight away
+notify pgrst, 'reload schema';

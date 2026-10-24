@@ -134,7 +134,7 @@ function MonthPage() {
       // saved figures are shown as saved; only typing is worked out again
       const computed: Computed = d ? result.computed : row;
       if (invalid) errors.unshift("One of the amounts is not a valid number (use digits, up to 2 decimals).");
-      const expected = expectedAmount(openings, t.mgr_due);
+      const expected = expectedAmount(openings, inputs.advance_interest_due, t.mgr_due);
       return { text, inputs, openings, computed, errors, expected, draft: d, conflict: !!d && d.base !== row.version };
     },
     [drafts, terms],
@@ -149,11 +149,12 @@ function MonthPage() {
       };
       const next: Draft = { ...cur, f: { ...cur.f } };
       next.f[field] = value;
-      // a new amount brought fills the advance repayment and merry go round again;
-      // the chairman can still change them afterwards
-      const paid = parseMoney(value);
-      if (field === "amount_paid" && paid !== null) {
-        const split = autoSplit(row, paid, terms().mgr_due);
+      // a new amount brought (or interest due) fills the advance repayment and
+      // merry go round again; the chairman can still change them afterwards
+      const paid = parseMoney(next.f.amount_paid);
+      const due = parseMoney(next.f.advance_interest_due);
+      if ((field === "amount_paid" || field === "advance_interest_due") && paid !== null && due !== null) {
+        const split = autoSplit(row, paid, due, terms().mgr_due);
         next.f.advance_repaid = centsToInput(split.advance_repaid);
         next.f.mgr_contribution = centsToInput(split.mgr_contribution);
       }
@@ -225,7 +226,7 @@ function MonthPage() {
     for (const r of rows) {
       const v = view(r);
       t.sb += v.openings.savings_open; t.ab += v.openings.advance_bal_open;
-      t.due += interestDue(v.openings); t.exp += v.expected; t.paid += v.inputs.amount_paid; t.ar += v.inputs.advance_repaid;
+      t.due += v.inputs.advance_interest_due; t.exp += v.expected; t.paid += v.inputs.amount_paid; t.ar += v.inputs.advance_repaid;
       t.mgr += v.inputs.mgr_contribution; t.sav += v.computed.savings_contribution;
       t.ai += v.inputs.advance_issued; t.sc += v.computed.savings_close; t.ac += v.computed.advance_bal_close;
     }
@@ -310,7 +311,7 @@ function MonthPage() {
             <tr>
               <th rowSpan={2}>Member</th>
               <th className="group" colSpan={2}>Brought forward (auto)</th>
-              <th className="group" colSpan={2}>Due (auto)</th>
+              <th className="group" colSpan={2}>Due</th>
               <th className="group" colSpan={3}>Fed this month</th>
               <th className="group" colSpan={1}>Auto</th>
               <th className="group" colSpan={1}>Issued this month</th>
@@ -328,7 +329,7 @@ function MonthPage() {
           <tbody>
             {shown.map((row) => {
               const v = view(row);
-              const due = interestDue(v.openings);
+              const workedOut = interestDue(v.openings);
               const err = rowErrors[row.id] || (v.draft ? v.errors.join(" ") : "");
               const money = (k: ManualKey, lbl: string) => (
                 <td className="num" data-label={lbl}>
@@ -367,7 +368,14 @@ function MonthPage() {
                   </td>
                   {bf("savings_open", "Savings b/f")}
                   {bf("advance_bal_open", "Advance b/f")}
-                  <td className="num auto" data-label="Interest due"><Money cents={due} dashZero /></td>
+                  <td className="num" data-label="Interest due">
+                    {editable ? (
+                      <MoneyInput label={`Interest due, ${row.member.full_name}`} value={v.text.advance_interest_due} onChange={(x) => edit(row, "advance_interest_due", x)} />
+                    ) : (
+                      <Money cents={row.advance_interest_due} dashZero />
+                    )}
+                    {v.inputs.advance_interest_due !== workedOut && <div className="cell-hint">Worked out {formatMoney(workedOut)}</div>}
+                  </td>
                   <td className="num auto" data-label="Expected"><Money cents={v.expected} dashZero /></td>
                   {money("amount_paid", "Amount brought")}
                   {money("advance_repaid", "Advance repaid")}
@@ -598,7 +606,7 @@ function exportCsv(label: string, rows: EntryRow[], view: (r: EntryRow) => {
     const v = view(r);
     const cut = v.computed.advance_interest_deducted;
     return [r.member.member_no, `"${r.member.full_name.replace(/"/g, '""')}"`, m(v.openings.savings_open),
-      m(v.openings.advance_bal_open), m(interestDue(v.openings)), m(v.expected), m(v.inputs.amount_paid), m(v.inputs.advance_repaid),
+      m(v.openings.advance_bal_open), m(v.inputs.advance_interest_due), m(v.expected), m(v.inputs.amount_paid), m(v.inputs.advance_repaid),
       m(v.inputs.mgr_contribution), m(v.computed.advance_interest_paid), m(v.computed.savings_contribution),
       m(v.openings.bonus_credit), m(v.inputs.advance_issued), m(cut), m(v.inputs.advance_issued - cut),
       m(v.computed.savings_close), m(v.computed.advance_bal_close)].join(",");

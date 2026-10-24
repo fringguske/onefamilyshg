@@ -8,7 +8,7 @@ export interface OpeningBalances {
   opening_advance_cents: number;
 }
 
-const ZERO_INPUTS = { amount_paid: 0, advance_repaid: 0, advance_issued: 0, mgr_contribution: 0 };
+const ZERO_INPUTS = { amount_paid: 0, advance_repaid: 0, advance_issued: 0, mgr_contribution: 0, advance_interest_due: 0 };
 
 /**
  * Balances b/f for a member's first month: their opening balances. The interest

@@ -1,14 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { autoSplit, computeEntry, expectedAmount, interestOn, splitBonus, type Openings } from "../src/lib/ledger";
+import { autoSplit, computeEntry, expectedAmount, interestDue, interestOn, splitBonus, type Openings } from "../src/lib/ledger";
 import { rotation } from "../src/lib/mgr";
 import { parseMoney, formatMoney, parsePercent, formatPercent, centsToInput } from "../src/lib/money";
 
 const open = (o: Partial<Openings> = {}): Openings => ({
   savings_open: 0, advance_bal_open: 0, advance_interest_bf: 0, advance_interest_charged: 0, bonus_credit: 0, ...o,
 });
-const inp = (m: Partial<Record<string, number>> = {}) => ({
-  amount_paid: 0, advance_repaid: 0, advance_issued: 0, mgr_contribution: 0, ...m,
+/** Fed values; interest due starts as what the roll worked out for `o`, as on the sheet. */
+const inp = (o: Openings, m: Partial<Record<string, number>> = {}) => ({
+  amount_paid: 0, advance_repaid: 0, advance_issued: 0, mgr_contribution: 0, advance_interest_due: interestDue(o), ...m,
 });
 
 test("money parsing never uses floats", () => {
@@ -45,10 +46,10 @@ const T = { advance_rate_bps: 1000, mgr_due: 100000 };
 
 test("bringing what is expected pays interest, the advance and the merry go round; the rest is savings", () => {
   const o = open({ advance_bal_open: 1000000, advance_interest_charged: 100000, savings_open: 500000 });
-  assert.equal(expectedAmount(o, T.mgr_due), 1200000);
-  const split = autoSplit(o, 1500000, T.mgr_due);
+  assert.equal(expectedAmount(o, interestDue(o), T.mgr_due), 1200000);
+  const split = autoSplit(o, 1500000, interestDue(o), T.mgr_due);
   assert.deepEqual(split, { advance_repaid: 1000000, mgr_contribution: 100000 });
-  const { computed, errors } = computeEntry(o, inp({ amount_paid: 1500000, ...split }), T);
+  const { computed, errors } = computeEntry(o, inp(o, { amount_paid: 1500000, ...split }), T);
   assert.deepEqual(errors, []);
   assert.equal(computed.advance_interest_paid, 100000);
   assert.equal(computed.savings_contribution, 300000);
@@ -59,15 +60,15 @@ test("bringing what is expected pays interest, the advance and the merry go roun
 
 test("exactly the expected amount is enough", () => {
   const o = open({ advance_bal_open: 100000 });
-  assert.deepEqual(autoSplit(o, 200000, T.mgr_due), { advance_repaid: 100000, mgr_contribution: 100000 });
-  assert.deepEqual(autoSplit(o, 199999, T.mgr_due), { advance_repaid: 0, mgr_contribution: 0 });
+  assert.deepEqual(autoSplit(o, 200000, interestDue(o), T.mgr_due), { advance_repaid: 100000, mgr_contribution: 100000 });
+  assert.deepEqual(autoSplit(o, 199999, interestDue(o), T.mgr_due), { advance_repaid: 0, mgr_contribution: 0 });
 });
 
 test("bringing less than expected all goes to savings and the interest is carried", () => {
   const o = open({ advance_bal_open: 100000, advance_interest_charged: 10000 });
-  const split = autoSplit(o, 150000, T.mgr_due);
+  const split = autoSplit(o, 150000, interestDue(o), T.mgr_due);
   assert.deepEqual(split, { advance_repaid: 0, mgr_contribution: 0 });
-  const { computed, errors } = computeEntry(o, inp({ amount_paid: 150000, ...split }), T);
+  const { computed, errors } = computeEntry(o, inp(o, { amount_paid: 150000, ...split }), T);
   assert.deepEqual(errors, []);
   assert.equal(computed.advance_interest_paid, 0);
   assert.equal(computed.savings_contribution, 150000);
@@ -78,36 +79,54 @@ test("bringing less than expected all goes to savings and the interest is carrie
 test("the chairman can change the split; a repayment always pays the interest first", () => {
   const o = open({ advance_bal_open: 100000, advance_interest_charged: 10000 });
   // short, but part of the advance is repaid: interest comes out first
-  const part = computeEntry(o, inp({ amount_paid: 60000, advance_repaid: 50000 }), T);
+  const part = computeEntry(o, inp(o, { amount_paid: 60000, advance_repaid: 50000 }), T);
   assert.deepEqual(part.errors, []);
   assert.equal(part.computed.advance_interest_paid, 10000);
   assert.equal(part.computed.savings_contribution, 0);
-  const bad = computeEntry(o, inp({ amount_paid: 55000, advance_repaid: 50000 }), T);
+  const bad = computeEntry(o, inp(o, { amount_paid: 55000, advance_repaid: 50000 }), T);
   assert.equal(bad.errors.length, 1);
   assert.match(bad.errors[0], /Short by 50.00/);
   // covered, but the chairman takes less merry go round: the difference is savings
-  const less = computeEntry(o, inp({ amount_paid: 300000, advance_repaid: 100000, mgr_contribution: 50000 }), T);
+  const less = computeEntry(o, inp(o, { amount_paid: 300000, advance_repaid: 100000, mgr_contribution: 50000 }), T);
   assert.deepEqual(less.errors, []);
   assert.equal(less.computed.savings_contribution, 140000);
 });
 
 test("with no merry go round amount set, only the interest and advance are expected", () => {
   const o = open({ advance_bal_open: 100000 });
-  assert.equal(expectedAmount(o, 0), 100000);
-  assert.deepEqual(autoSplit(o, 100000, 0), { advance_repaid: 100000, mgr_contribution: 0 });
+  assert.equal(expectedAmount(o, interestDue(o), 0), 100000);
+  assert.deepEqual(autoSplit(o, 100000, interestDue(o), 0), { advance_repaid: 100000, mgr_contribution: 0 });
 });
 
 test("cannot repay more than the balance", () => {
-  const r = computeEntry(open({ advance_bal_open: 1000 }), inp({ amount_paid: 5000, advance_repaid: 2000 }), T);
+  const o = open({ advance_bal_open: 1000 });
+  const r = computeEntry(o, inp(o, { amount_paid: 5000, advance_repaid: 2000 }), T);
   assert.equal(r.errors.length, 1);
 });
 
 test("interest is cut from a new advance, the whole advance is owed", () => {
-  const r = computeEntry(open(), inp({ amount_paid: 50000, advance_issued: 100000 }), T);
+  const r = computeEntry(open(), inp(open(), { amount_paid: 50000, advance_issued: 100000 }), T);
   assert.deepEqual(r.errors, []);
   assert.equal(r.computed.advance_interest_deducted, 10000); // takes 1,000, is handed 900
   assert.equal(r.computed.advance_bal_close, 100000);        // owes 1,000 next month
   assert.equal(r.computed.savings_contribution, 50000);
+});
+
+test("the chairman can change the interest due", () => {
+  const o = open({ advance_bal_open: 100000, advance_interest_bf: 5000, advance_interest_charged: 10000 });
+  assert.equal(interestDue(o), 15000);
+  // lowered to 4,000: that is what is expected and collected, nothing is carried
+  assert.equal(expectedAmount(o, 4000, 0), 104000);
+  const low = computeEntry(o, inp(o, { advance_interest_due: 4000, amount_paid: 104000, ...autoSplit(o, 104000, 4000, 0) }), { ...T, mgr_due: 0 });
+  assert.deepEqual(low.errors, []);
+  assert.equal(low.computed.advance_interest_paid, 4000);
+  assert.equal(low.computed.advance_interest_arrears, 0);
+  assert.equal(low.computed.advance_bal_close, 0);
+  // raised and not paid: the whole raised amount is carried forward
+  const high = computeEntry(o, inp(o, { advance_interest_due: 20000, amount_paid: 1000 }), T);
+  assert.deepEqual(high.errors, []);
+  assert.equal(high.computed.advance_interest_arrears, 20000);
+  assert.equal(high.computed.savings_contribution, 1000);
 });
 
 test("identities hold for many random entries", () => {
@@ -120,9 +139,10 @@ test("identities hold for many random entries", () => {
       bonus_credit: rnd(4) ? 0 : rnd(10_000) });
     const t = { advance_rate_bps: 1000, mgr_due: rnd(3) ? 100000 : 0 };
     const paid = rnd(2_000_000);
+    const due = rnd(3) ? interestDue(o) : rnd(80_000); // sometimes changed by the chairman
     const m = rnd(2)
-      ? inp({ amount_paid: paid, ...autoSplit(o, paid, t.mgr_due), advance_issued: rnd(5) ? 0 : rnd(5_000_000) })
-      : inp({ amount_paid: paid, advance_repaid: rnd(2) ? 0 : rnd(adv + 1),
+      ? inp(o, { amount_paid: paid, advance_interest_due: due, ...autoSplit(o, paid, due, t.mgr_due), advance_issued: rnd(5) ? 0 : rnd(5_000_000) })
+      : inp(o, { amount_paid: paid, advance_interest_due: due, advance_repaid: rnd(2) ? 0 : rnd(adv + 1),
           advance_issued: rnd(5) ? 0 : rnd(5_000_000), mgr_contribution: rnd(2) ? 0 : rnd(500_000) });
     const { computed: c, errors } = computeEntry(o, m, t);
     if (m.advance_repaid === 0 && m.mgr_contribution === 0) assert.deepEqual(errors, []);
@@ -130,7 +150,7 @@ test("identities hold for many random entries", () => {
     assert.equal(m.amount_paid, c.advance_interest_paid + m.advance_repaid + m.mgr_contribution + c.savings_contribution);
     assert.equal(c.savings_close, o.savings_open + c.savings_contribution + o.bonus_credit);
     assert.equal(c.advance_bal_close, o.advance_bal_open + m.advance_issued - m.advance_repaid);
-    assert.equal(c.advance_interest_arrears + c.advance_interest_paid, o.advance_interest_bf + o.advance_interest_charged);
+    assert.equal(c.advance_interest_arrears + c.advance_interest_paid, m.advance_interest_due);
     assert.ok(m.advance_repaid === 0 || c.advance_interest_arrears === 0);
     assert.ok(c.advance_interest_deducted <= m.advance_issued);
     for (const v of Object.values(c)) assert.ok(Number.isSafeInteger(v) && v >= 0);
