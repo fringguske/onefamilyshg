@@ -19,7 +19,7 @@ export const PUT = route(async (req: Request) => {
   if (!group_name || !currency) throw new HttpError(400, "Enter the group name and currency.");
   const v = body.advance_rate_bps;
   if (!Number.isInteger(v) || (v as number) < 0 || (v as number) > 10000) throw new HttpError(400, "Enter a rate between 0% and 100%.");
-  for (const k of ["registration_fee_cents", "mgr_contribution_cents", "fine_cents", "opening_cash_cents", "opening_interest_pool_cents"]) {
+  for (const k of ["registration_fee_cents", "mgr_contribution_cents", "opening_cash_cents", "opening_interest_pool_cents"]) {
     if (!isCents(body[k])) throw new HttpError(400, "One of the amounts is not valid.");
   }
   const before = await getSettings();
@@ -29,7 +29,6 @@ export const PUT = route(async (req: Request) => {
     advance_rate_bps: body.advance_rate_bps,
     registration_fee_cents: body.registration_fee_cents,
     mgr_contribution_cents: body.mgr_contribution_cents,
-    fine_cents: body.fine_cents,
     opening_cash_cents: body.opening_cash_cents,
     opening_interest_pool_cents: body.opening_interest_pool_cents,
     updated_at: new Date().toISOString(),

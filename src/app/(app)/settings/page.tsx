@@ -37,7 +37,6 @@ function GroupSettings({ settings, onSaved }: { settings: Settings; onSaved: (s:
     advance_rate: formatPercent(settings.advance_rate_bps),
     fee: centsToInput(settings.registration_fee_cents),
     mgr: centsToInput(settings.mgr_contribution_cents),
-    fine: centsToInput(settings.fine_cents),
     opening_cash: centsToInput(settings.opening_cash_cents),
     opening_interest: centsToInput(settings.opening_interest_pool_cents),
   });
@@ -50,7 +49,7 @@ function GroupSettings({ settings, onSaved }: { settings: Settings; onSaved: (s:
     const body = {
       group_name: f.group_name, currency: f.currency,
       advance_rate_bps: parsePercent(f.advance_rate),
-      registration_fee_cents: parseMoney(f.fee), mgr_contribution_cents: parseMoney(f.mgr), fine_cents: parseMoney(f.fine), opening_cash_cents: parseMoney(f.opening_cash),
+      registration_fee_cents: parseMoney(f.fee), mgr_contribution_cents: parseMoney(f.mgr), opening_cash_cents: parseMoney(f.opening_cash),
       opening_interest_pool_cents: parseMoney(f.opening_interest),
     };
     if (Object.values(body).some((v) => v === null)) return setMsg({ kind: "error", text: "Check the numbers. One of them is not valid." });
@@ -80,10 +79,6 @@ function GroupSettings({ settings, onSaved }: { settings: Settings; onSaved: (s:
         </div>
         <div className="field"><label>Standard registration fee</label><MoneyInput value={f.fee} onChange={set("fee")} /></div>
         <div className="field"><label>Merry go round contribution per member</label><MoneyInput value={f.mgr} onChange={set("mgr")} /></div>
-        <div className="field">
-          <label>Monthly fine per member</label><MoneyInput value={f.fine} onChange={set("fine")} />
-          <div className="hint">Cut from every member&apos;s amount brought each month, like the merry go round.</div>
-        </div>
         <div className="field">
           <label>Opening cash</label><MoneyInput value={f.opening_cash} onChange={set("opening_cash")} />
           <div className="hint">Cash/bank the group held when the books were started here.</div>

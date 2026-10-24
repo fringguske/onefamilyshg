@@ -27,7 +27,7 @@ export function firstMonthOpenings(m: OpeningBalances, bonus_credit = 0): Openin
 /** The terms every member's record is worked out with. */
 export async function entryTerms(): Promise<Terms> {
   const s = await getSettings();
-  return { advance_rate_bps: s.advance_rate_bps, mgr_due: s.mgr_contribution_cents, fine_due: s.fine_cents };
+  return { advance_rate_bps: s.advance_rate_bps, mgr_due: s.mgr_contribution_cents };
 }
 
 /**
@@ -59,7 +59,7 @@ export async function ensureOpenEntries(actor: string, onlyMemberIds?: string[])
         period_id: open.id,
         member_id: m.id,
         ...openingColumns,
-        ...computeEntry(openings, ZERO_INPUTS, { advance_rate_bps: settings.advance_rate_bps, mgr_due: 0, fine_due: 0 }).computed,
+        ...computeEntry(openings, ZERO_INPUTS, { advance_rate_bps: settings.advance_rate_bps, mgr_due: 0 }).computed,
         updated_by: actor,
       };
     });

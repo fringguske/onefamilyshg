@@ -32,8 +32,8 @@ create table if not exists settings (
 insert into settings (id) values (1) on conflict (id) do nothing;
 -- what each member gives the merry go round recipient every month
 alter table settings add column if not exists mgr_contribution_cents bigint not null default 0 check (mgr_contribution_cents >= 0);
--- the fine cut from every member each month, out of the amount brought (KES 20)
-alter table settings add column if not exists fine_cents bigint not null default 2000 check (fine_cents >= 0);
+-- fines are fed by the chairman per member, so there is no standard fine amount
+alter table settings drop column if exists fine_cents;
 alter table settings drop column if exists loan_rate_bps;
 
 -- ---------------------------------------------------------------------
@@ -157,7 +157,7 @@ create table if not exists member_entries (
 alter table member_entries add column if not exists mgr_contribution bigint not null default 0;
 -- interest cut from this month's new advance: the member receives advance_issued minus this
 alter table member_entries add column if not exists advance_interest_deducted bigint not null default 0;
--- the monthly fine paid by this member, out of the amount brought
+-- a fine fed by the chairman for this member, out of the amount brought (never expected)
 alter table member_entries add column if not exists fine_paid bigint not null default 0;
 -- transaction costs are kept once per month on periods, not per member
 alter table member_entries drop column if exists transaction_cost;

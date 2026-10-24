@@ -37,7 +37,6 @@ export interface Settings {
   advance_rate_bps: number;
   registration_fee_cents: number;
   mgr_contribution_cents: number;
-  fine_cents: number;
   opening_cash_cents: number;
   opening_interest_pool_cents: number;
 }

@@ -24,7 +24,6 @@ interface MonthData {
   rows: EntryRow[];
   rates?: { advance_rate_bps: number };
   mgr_contribution_cents?: number;
-  fine_cents?: number;
   currency?: string;
 }
 
@@ -102,12 +101,11 @@ function MonthPage() {
   const dirtyIds = Object.keys(drafts);
   useUnsavedWarning(dirtyIds.length > 0);
 
-  /** The rate, merry go round amount and fine every member's record is worked out with. */
+  /** The rate and merry go round amount every member's record is worked out with. */
   const terms = useCallback(
     (): Terms => ({
       advance_rate_bps: data?.rates?.advance_rate_bps ?? 0,
       mgr_due: data?.mgr_contribution_cents ?? 0,
-      fine_due: data?.fine_cents ?? 0,
     }),
     [data],
   );
@@ -136,7 +134,7 @@ function MonthPage() {
       // saved figures are shown as saved; only typing is worked out again
       const computed: Computed = d ? result.computed : row;
       if (invalid) errors.unshift("One of the amounts is not a valid number (use digits, up to 2 decimals).");
-      const expected = expectedAmount(openings, inputs.advance_interest_due, t);
+      const expected = expectedAmount(openings, inputs.advance_interest_due, t.mgr_due);
       return { text, inputs, openings, computed, errors, expected, draft: d, conflict: !!d && d.base !== row.version };
     },
     [drafts, terms],
@@ -151,15 +149,15 @@ function MonthPage() {
       };
       const next: Draft = { ...cur, f: { ...cur.f } };
       next.f[field] = value;
-      // a new amount brought (or interest due) fills the advance repayment,
-      // merry go round and fine again; the chairman can still change them afterwards
+      // a new amount brought (or interest due) fills the advance repayment and
+      // merry go round again; the chairman can still change them afterwards.
+      // A fine is only ever typed by the chairman.
       const paid = parseMoney(next.f.amount_paid);
       const due = parseMoney(next.f.advance_interest_due);
       if ((field === "amount_paid" || field === "advance_interest_due") && paid !== null && due !== null) {
-        const split = autoSplit(row, paid, due, terms());
+        const split = autoSplit(row, paid, due, terms().mgr_due);
         next.f.advance_repaid = centsToInput(split.advance_repaid);
         next.f.mgr_contribution = centsToInput(split.mgr_contribution);
-        next.f.fine_paid = centsToInput(split.fine_paid);
       }
       // a draft that matches the saved record is not a draft any more
       const same = MANUAL_FIELDS.every((k) => parseMoney(next.f[k]) === row[k]);

@@ -61,7 +61,7 @@ export default function SummaryPage() {
         <Stat label="Interest pool for bonus" cents={s.bonus_pool_available} hint="Interest and fines from rolled months, less bonuses" />
         <Stat label="Bonuses issued" cents={s.bonus_total} />
         <Stat label="Registration fees" cents={s.registration_fees_left} hint={s.costs_from_fees ? `${fmt(s.registration_fees)} collected, less ${fmt(s.costs_from_fees)} transaction costs` : undefined} />
-        <Stat label="Fines" cents={s.fines} hint="Cut from members each month, added to the interest pool" />
+        <Stat label="Fines" cents={s.fines} hint="Fed by the chairman, added to the interest pool" />
         <Stat label="Transaction costs" cents={s.transaction_costs} hint={
           s.costs_from_fees ? `${fmt(s.costs_from_interest)} from the interest, ${fmt(s.costs_from_fees)} from the registration fees` : "Paid out of the interest"
         } />
