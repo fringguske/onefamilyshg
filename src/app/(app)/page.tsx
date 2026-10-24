@@ -3,7 +3,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Alert, Loading, Money, PageHeader, Stat } from "@/components/ui";
 import { api, track } from "@/lib/client";
-import { formatMoney as fmt, formatPercent } from "@/lib/money";
+import { formatMoney as fmt } from "@/lib/money";
 import { monthLabel } from "@/lib/period";
 import type { Settings } from "@/lib/types";
 
@@ -39,7 +39,7 @@ export default function SummaryPage() {
         title="Group summary"
         subtitle={
           s.latest_period
-            ? <>Current month: <strong>{monthLabel(s.latest_period.year, s.latest_period.month)}</strong>. All amounts in {cur}. Advance interest {formatPercent(settings.advance_rate_bps)}%, cut when the advance is taken</>
+            ? <>Current month: <strong>{monthLabel(s.latest_period.year, s.latest_period.month)}</strong>.</>
             : "The books have not been started yet."
         }
         actions={<button className="btn btn-secondary no-print" onClick={() => { track("printed"); window.print(); }}>Print</button>}
