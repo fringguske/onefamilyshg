@@ -18,7 +18,6 @@ interface Bonus {
 
 export default function BonusPage() {
   const [info, setInfo] = useState<{ pool: number; period: Period | null; bonuses: Bonus[] } | null>(null);
-  const [role, setRole] = useState("");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [amount, setAmount] = useState("");
@@ -31,10 +30,7 @@ export default function BonusPage() {
   const [expanded, setExpanded] = useState<string | null>(null);
 
   const load = () =>
-    Promise.all([
-      api<{ pool: number; period: Period | null; bonuses: Bonus[] }>("/api/bonus").then(setInfo),
-      api<{ me: { role: string } }>("/api/settings").then((d) => setRole(d.me.role)),
-    ]).catch((e) => setError(e.message));
+    api<{ pool: number; period: Period | null; bonuses: Bonus[] }>("/api/bonus").then(setInfo, (e) => setError(e.message));
   useEffect(() => { load(); }, []);
 
   // any change to the inputs throws the preview away, so what is issued is exactly what was seen
@@ -166,7 +162,7 @@ export default function BonusPage() {
                     <td>{b.note ?? ""}{b.voided_at && <div className="small muted">Voided by {b.voided_by}: {b.void_reason}</div>}</td>
                     <td className="row" style={{ gap: 6, flexWrap: "nowrap" }}>
                       <button className="btn btn-small btn-secondary" onClick={() => setExpanded(expanded === b.id ? null : b.id)}>Shares</button>
-                      {role === "admin" && !b.voided_at && b.period.status === "open" && (
+                      {!b.voided_at && b.period.status === "open" && (
                         <button className="btn btn-small btn-danger" onClick={() => setVoiding(b)}>Void</button>
                       )}
                     </td>

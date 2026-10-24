@@ -26,6 +26,17 @@ export async function api<T = unknown>(path: string, init: { method?: string; bo
   return data as T;
 }
 
+/** Records a browser-only action (page opened, printed, exported) in the audit trail. Never blocks or fails the page. */
+export function track(action: "page_view" | "printed" | "csv_exported" | "records_loaded") {
+  const period = new URLSearchParams(window.location.search).get("period") ?? undefined;
+  fetch("/api/audit", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action, path: window.location.pathname, period }),
+    keepalive: true,
+  }).catch(() => undefined);
+}
+
 // ---- browser storage (drafts survive switching apps, closing the tab, or losing signal) ----
 
 export function readStore<T>(key: string, fallback: T): T {

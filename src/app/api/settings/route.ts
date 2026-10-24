@@ -10,9 +10,9 @@ export const GET = route(async () => {
   return NextResponse.json({ settings: await getSettings(), me: { name: s.name, role: s.role, username: s.username } });
 });
 
-/** Administrator only. New interest rates apply from the next roll. */
+/** Chairman or administrator. New interest rates apply from the next roll. */
 export const PUT = route(async (req: Request) => {
-  const s = await requireUser(["admin"]);
+  const s = await requireUser();
   const body = await readJson(req);
   const group_name = text(body.group_name, 80);
   const currency = text(body.currency, 8);

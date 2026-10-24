@@ -24,7 +24,7 @@ export const GET = route(async () => {
  *  - only from interest of rolled (locked) months, never more than the pool
  *  - the person must have previewed the exact shares
  *  - shares are recalculated here; if anything changed since the preview, nothing is issued
- *  - recorded in the audit log; the administrator can void it while the month is open
+ *  - recorded in the audit log; the chairman or administrator can void it while the month is open
  */
 export const POST = route(async (req: Request) => {
   const s = await requireUser();

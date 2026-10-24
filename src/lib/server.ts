@@ -22,7 +22,7 @@ export async function getSession(): Promise<Session | null> {
 export async function requireUser(roles: Role[] = ["admin", "chairman"]): Promise<Session> {
   const s = await getSession();
   if (!s) throw new HttpError(401, "Please log in again.");
-  if (!roles.includes(s.role)) throw new HttpError(403, "Only the administrator can do this.");
+  if (!roles.includes(s.role)) throw new HttpError(403, "You do not have permission to do this.");
   return s;
 }
 

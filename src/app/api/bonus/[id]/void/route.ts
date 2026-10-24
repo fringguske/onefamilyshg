@@ -4,9 +4,9 @@ import { actorName, check, HttpError, readJson, requireUser, route, text } from 
 
 type Ctx = { params: Promise<{ id: string }> };
 
-/** Administrator only: cancel a bonus issued by mistake (while its month is still open). */
+/** Chairman or administrator: cancel a bonus issued by mistake (while its month is still open). */
 export const POST = route(async (req: Request, { params }: Ctx) => {
-  const s = await requireUser(["admin"]);
+  const s = await requireUser();
   const { id } = await params;
   const { reason } = await readJson<{ reason?: string }>(req);
   const why = text(reason, 300);

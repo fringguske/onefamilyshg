@@ -1,8 +1,8 @@
 "use client";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import type { ReactNode } from "react";
-import { api } from "@/lib/client";
+import { usePathname, useSearchParams } from "next/navigation";
+import { useEffect, type ReactNode } from "react";
+import { api, track } from "@/lib/client";
 
 const NAV = [
   { href: "/", label: "Group summary" },
@@ -16,6 +16,9 @@ const NAV = [
 
 export function AppShell({ user, groupName, children }: { user: { name: string; role: string }; groupName: string; children: ReactNode }) {
   const path = usePathname();
+  const search = useSearchParams().toString();
+  // every page opened (and every month chosen) goes into the audit trail
+  useEffect(() => { track("page_view"); }, [path, search]);
   const isActive = (href: string) =>
     href === "/" ? path === "/" : href === "/members" ? path === "/members" || /^\/members\/(?!register)/.test(path) : path.startsWith(href);
 

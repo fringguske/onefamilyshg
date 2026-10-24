@@ -21,16 +21,16 @@ export default function SettingsPage() {
   return (
     <div className="stack">
       <PageHeader title="Settings" subtitle={`Signed in as ${data.me.name} (${admin ? "administrator" : "chairman"}).`} />
-      <GroupSettings settings={data.settings} canEdit={admin} onSaved={(settings) => setData({ ...data, settings })} />
+      <GroupSettings settings={data.settings} onSaved={(settings) => setData({ ...data, settings })} />
       {!admin && <ChangePassword />}
-      {admin && <Chairmen />}
-      {admin && <UndoRoll />}
-      {admin && <AuditLog />}
+      <Chairmen />
+      <UndoRoll />
+      <AuditLog />
     </div>
   );
 }
 
-function GroupSettings({ settings, canEdit, onSaved }: { settings: Settings; canEdit: boolean; onSaved: (s: Settings) => void }) {
+function GroupSettings({ settings, onSaved }: { settings: Settings; onSaved: (s: Settings) => void }) {
   const [f, setF] = useState({
     group_name: settings.group_name,
     currency: settings.currency,
@@ -68,29 +68,26 @@ function GroupSettings({ settings, canEdit, onSaved }: { settings: Settings; can
   return (
     <form className="card" onSubmit={save}>
       <h2>Group settings</h2>
-      {!canEdit && <p className="muted small">Only the administrator can change these.</p>}
       {msg && <Alert kind={msg.kind}>{msg.text}</Alert>}
-      <fieldset disabled={!canEdit} style={{ border: 0, padding: 0, margin: 0 }}>
-        <div className="grid-form">
-          <div className="field"><label>Group name</label><input value={f.group_name} onChange={(e) => set("group_name")(e.target.value)} /></div>
-          <div className="field"><label>Currency</label><input value={f.currency} onChange={(e) => set("currency")(e.target.value)} /></div>
-          <div className="field">
-            <label>Advance interest (% per month)</label>
-            <input inputMode="decimal" value={f.advance_rate} onChange={(e) => set("advance_rate")(e.target.value)} className={parsePercent(f.advance_rate) === null ? "invalid" : ""} />
-          </div>
-          <div className="field"><label>Standard registration fee</label><MoneyInput value={f.fee} onChange={set("fee")} /></div>
-          <div className="field"><label>Merry go round contribution per member</label><MoneyInput value={f.mgr} onChange={set("mgr")} /></div>
-          <div className="field">
-            <label>Opening cash</label><MoneyInput value={f.opening_cash} onChange={set("opening_cash")} />
-            <div className="hint">Cash/bank the group held when the books were started here.</div>
-          </div>
-          <div className="field">
-            <label>Interest pool brought in</label><MoneyInput value={f.opening_interest} onChange={set("opening_interest")} />
-            <div className="hint">Interest earned before this system and not yet shared out.</div>
-          </div>
+      <div className="grid-form">
+        <div className="field"><label>Group name</label><input value={f.group_name} onChange={(e) => set("group_name")(e.target.value)} /></div>
+        <div className="field"><label>Currency</label><input value={f.currency} onChange={(e) => set("currency")(e.target.value)} /></div>
+        <div className="field">
+          <label>Advance interest (% per month)</label>
+          <input inputMode="decimal" value={f.advance_rate} onChange={(e) => set("advance_rate")(e.target.value)} className={parsePercent(f.advance_rate) === null ? "invalid" : ""} />
         </div>
-        {canEdit && <button className="btn" disabled={busy}>{busy ? "Saving..." : "Save settings"}</button>}
-      </fieldset>
+        <div className="field"><label>Standard registration fee</label><MoneyInput value={f.fee} onChange={set("fee")} /></div>
+        <div className="field"><label>Merry go round contribution per member</label><MoneyInput value={f.mgr} onChange={set("mgr")} /></div>
+        <div className="field">
+          <label>Opening cash</label><MoneyInput value={f.opening_cash} onChange={set("opening_cash")} />
+          <div className="hint">Cash/bank the group held when the books were started here.</div>
+        </div>
+        <div className="field">
+          <label>Interest pool brought in</label><MoneyInput value={f.opening_interest} onChange={set("opening_interest")} />
+          <div className="hint">Interest earned before this system and not yet shared out.</div>
+        </div>
+      </div>
+      <button className="btn" disabled={busy}>{busy ? "Saving..." : "Save settings"}</button>
     </form>
   );
 }
@@ -226,17 +223,34 @@ interface LogRow { id: number; at: string; actor: string; action: string; detail
 
 function AuditLog() {
   const [log, setLog] = useState<LogRow[] | null>(null);
+  const [actors, setActors] = useState<string[]>([]);
   const [open, setOpen] = useState(false);
+  const [views, setViews] = useState(true);
+  const [actor, setActor] = useState("");
   useEffect(() => {
-    if (open && !log) api<{ log: LogRow[] }>("/api/audit").then((d) => setLog(d.log), () => setLog([]));
-  }, [open, log]);
+    if (!open) return;
+    setLog(null);
+    const q = new URLSearchParams();
+    if (!views) q.set("views", "0");
+    if (actor) q.set("actor", actor);
+    api<{ log: LogRow[]; actors: string[] }>(`/api/audit?${q}`).then((d) => { setLog(d.log); setActors(d.actors); }, () => setLog([]));
+  }, [open, views, actor]);
   return (
     <div className="card">
       <div className="row">
         <h2 style={{ margin: 0 }}>Audit trail</h2>
         <span className="spacer" />
-        <button className="btn btn-secondary btn-small" onClick={() => setOpen(!open)}>{open ? "Hide" : "Show last 300 actions"}</button>
+        <button className="btn btn-secondary btn-small" onClick={() => setOpen(!open)}>{open ? "Hide" : "Show last 500 actions"}</button>
       </div>
+      {open && (
+        <div className="row" style={{ marginTop: 12, gap: 12 }}>
+          <select aria-label="Whose actions" value={actor} onChange={(e) => setActor(e.target.value)} style={{ width: "auto" }}>
+            <option value="">Everyone</option>
+            {actors.map((a) => <option key={a} value={a}>{a}</option>)}
+          </select>
+          <label className="check"><input type="checkbox" checked={views} onChange={(e) => setViews(e.target.checked)} /> Show pages viewed</label>
+        </div>
+      )}
       {open && (!log ? <Loading /> : (
         <div className="table-wrap" style={{ marginTop: 12, maxHeight: 480, overflowY: "auto" }}>
           <table>
@@ -247,9 +261,10 @@ function AuditLog() {
                   <td className="num">{new Date(r.at).toLocaleString()}</td>
                   <td>{r.actor}</td>
                   <td>{r.action.replace(/_/g, " ")}</td>
-                  <td className="small"><code>{describe(r.details)}</code></td>
+                  <td className="small">{describe(r.details)}</td>
                 </tr>
               ))}
+              {!log.length && <tr><td colSpan={4} className="muted">Nothing recorded.</td></tr>}
             </tbody>
           </table>
         </div>
@@ -258,8 +273,12 @@ function AuditLog() {
   );
 }
 
+/** "page: Monthly records, month: October 2026"; nested values stay as JSON. */
 function describe(d: Record<string, unknown> | null): string {
   if (!d) return "";
-  const s = JSON.stringify(d, (k, v) => (typeof v === "number" && /cents|amount|paid|repaid|issued|open|total/.test(k) ? formatMoney(v) : v));
+  const money = (k: string, v: unknown) => (typeof v === "number" && /cents|amount|paid|repaid|issued|open|total/.test(k) ? formatMoney(v) : v);
+  const s = Object.entries(d)
+    .map(([k, v]) => `${k.replace(/_/g, " ")}: ${v !== null && typeof v === "object" ? JSON.stringify(v, money) : money(k, v)}`)
+    .join(", ");
   return s.length > 220 ? s.slice(0, 220) + "..." : s;
 }

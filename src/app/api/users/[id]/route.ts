@@ -5,9 +5,9 @@ import { audit, check, HttpError, readJson, requireUser, route, text } from "@/l
 
 type Ctx = { params: Promise<{ id: string }> };
 
-/** Administrator only: rename, reset password, or (de)activate a chairman. */
+/** Chairman or administrator: rename, reset password, or (de)activate a chairman. */
 export const PATCH = route(async (req: Request, { params }: Ctx) => {
-  const s = await requireUser(["admin"]);
+  const s = await requireUser();
   const { id } = await params;
   const body = await readJson(req);
   const changes: Record<string, unknown> = {};
@@ -16,7 +16,10 @@ export const PATCH = route(async (req: Request, { params }: Ctx) => {
     if (!name) throw new HttpError(400, "Enter the chairman's name.");
     changes.display_name = name;
   }
-  if ("active" in body) changes.active = body.active === true;
+  if ("active" in body) {
+    if (body.active !== true && id === s.sub) throw new HttpError(400, "You cannot disable your own account.");
+    changes.active = body.active === true;
+  }
   if ("password" in body) {
     const pw = String(body.password ?? "");
     if (pw.length < 8) throw new HttpError(400, "The password must have at least 8 characters.");

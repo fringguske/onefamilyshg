@@ -15,7 +15,7 @@ hosted on Vercel.
 | **Member records** | Every member with their current savings and advance balance. Each member has a page with their month-by-month transactions and the months they took the merry go round |
 | **Registration** | Registers a new member and records the registration fee they paid |
 | **Bonus** | Shares the interest pool out to members, either by savings or equally, and either credited to savings or paid in cash. It has several safeguards (see below) |
-| **Settings** | Advance interest rate, registration fee, merry go round contribution, opening balances, chairman accounts, undo last roll, and the audit trail (administrator only) |
+| **Settings** | Advance interest rate, registration fee, merry go round contribution, opening balances, chairman accounts, undo last roll, and the audit trail |
 
 ## How the money is calculated
 
@@ -66,7 +66,7 @@ they are saved to the database. The browser also warns before leaving a page wit
 * The bonus can never be more than that pool. The database refuses it.
 * The person must **preview** every member's share before issuing. If anything changed after the preview, nothing is
   issued.
-* Every bonus records who issued it. Only the **administrator** can void a bonus, and only before its month is rolled.
+* Every bonus records who issued it. The chairman or the administrator can void a bonus, but only before its month is rolled.
 
 ## Setup
 
@@ -95,8 +95,17 @@ As you asked, the administrator login lives only in the environment variables, n
 `ADMIN_PASSWORD_HASH` rather than `ADMIN_PASSWORD`: then even someone who can see the Vercel settings cannot read your
 password. To change your password, generate a new hash, update the variable, and redeploy.
 
-Chairman accounts are stored in the database with scrypt-hashed passwords. The administrator creates them under
+Chairman accounts are stored in the database with scrypt-hashed passwords. The administrator or any chairman creates them under
 **Settings > Chairman accounts**, and each chairman can change their own password.
+
+A chairman has every privilege the administrator has: registering members, feeding and rolling months, undoing a
+roll, issuing and voiding bonuses, changing the group settings, managing chairman accounts and reading the audit trail.
+The only difference is that a chairman cannot disable their own account.
+
+The **audit trail** (Settings) records every action with who did it and when: logging in and out (and wrong
+passwords), every page opened (with the month or member being looked at), printing, CSV exports, bonus previews,
+opening the audit trail itself, and every change to the records. It can be filtered by person, and page views can be
+hidden to see only the changes.
 
 ### 3. Deploy to Vercel
 
@@ -128,7 +137,7 @@ The brought-forward columns on Monthly records are never typed. In a member's fi
 balances; after that the roll fills them in. Opening balances can be corrected on the member's page until their first
 month is rolled, and are locked after that.
 
-If a month was rolled by mistake, the administrator can **Undo last roll** (Settings), as long as nothing has been fed
+If a month was rolled by mistake, the chairman or administrator can **Undo last roll** (Settings), as long as nothing has been fed
 in the new month yet.
 
 ## Project layout

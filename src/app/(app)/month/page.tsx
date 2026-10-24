@@ -3,7 +3,7 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { MoneyInput } from "@/components/MoneyInput";
 import { Alert, Loading, Modal, Money, PageHeader } from "@/components/ui";
-import { api, readStore, useUnsavedWarning, writeStore } from "@/lib/client";
+import { api, readStore, track, useUnsavedWarning, writeStore } from "@/lib/client";
 import { computeEntry, interestDue, MANUAL_FIELDS, type ManualInputs, type Openings } from "@/lib/ledger";
 import { rotation } from "@/lib/mgr";
 import { centsToInput, formatMoney, parseMoney } from "@/lib/money";
@@ -257,10 +257,10 @@ function MonthPage() {
                 <option key={p.id} value={p.id}>{monthLabel(p.year, p.month)}{p.status === "open" ? " (open)" : ""}</option>
               ))}
             </select>
-            <button className="btn btn-secondary" disabled={loading} onClick={() => (requested ? router.push("/month") : load(null))}>
+            <button className="btn btn-secondary" disabled={loading} onClick={() => { if (requested) router.push("/month"); else { track("records_loaded"); load(null); } }}>
               {loading ? "Loading..." : "Load group records for this month"}
             </button>
-            <button className="btn btn-secondary" onClick={() => exportCsv(label, rows, view)}>Export CSV</button>
+            <button className="btn btn-secondary" onClick={() => { track("csv_exported"); exportCsv(label, rows, view); }}>Export CSV</button>
           </>
         }
       />

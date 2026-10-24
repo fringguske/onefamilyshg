@@ -357,7 +357,7 @@ begin
 end $$;
 
 -- ---------------------------------------------------------------------
--- UNDO ROLL (administrator): only while nothing has been fed in the new month
+-- UNDO ROLL (chairman or administrator): only while nothing has been fed in the new month
 -- ---------------------------------------------------------------------
 create or replace function undo_roll(p_actor text) returns uuid
 language plpgsql as $$
@@ -470,7 +470,7 @@ begin
 end $$;
 
 -- ---------------------------------------------------------------------
--- VOID BONUS (administrator): only while its month is still open
+-- VOID BONUS (chairman or administrator): only while its month is still open
 -- ---------------------------------------------------------------------
 create or replace function void_bonus(p_bonus_id uuid, p_reason text, p_actor text) returns void
 language plpgsql as $$

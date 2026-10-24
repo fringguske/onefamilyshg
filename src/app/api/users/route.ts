@@ -5,15 +5,15 @@ import { audit, check, HttpError, readJson, requireUser, route, text } from "@/l
 
 export const dynamic = "force-dynamic";
 
-/** Administrator only: chairman accounts. */
+/** Chairman or administrator: chairman accounts. */
 export const GET = route(async () => {
-  await requireUser(["admin"]);
+  await requireUser();
   const users = check(await db().from("app_users").select("id, username, display_name, active, created_at").order("created_at"));
   return NextResponse.json({ users });
 });
 
 export const POST = route(async (req: Request) => {
-  const s = await requireUser(["admin"]);
+  const s = await requireUser();
   const body = await readJson(req);
   const username = String(body.username ?? "").trim().toLowerCase();
   const display_name = text(body.display_name, 80);
