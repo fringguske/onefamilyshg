@@ -9,13 +9,13 @@ import type { Settings } from "@/lib/types";
 
 interface MonthRow {
   id: string; seq: number; year: number; month: number; status: string; members: number; collected: number; interest: number;
-  savings: number; advances_issued: number; advances_repaid: number; mgr_recipient: string | null; mgr_total: number;
+  savings: number; advances_issued: number; advances_repaid: number; transaction_costs: number; mgr_recipient: string | null; mgr_total: number;
 }
 interface Summary {
   latest_period: { id: string; year: number; month: number; status: string } | null;
   total_savings: number; advances_outstanding: number; interest_arrears: number;
   total_collected: number; savings_contributed: number; advances_issued: number; advances_repaid: number;
-  advance_interest: number; mgr_total: number; opening_interest: number; total_interest: number; bonus_total: number; bonus_cash: number; bonus_pool_available: number;
+  advance_interest: number; transaction_costs: number; mgr_total: number; opening_interest: number; total_interest: number; bonus_total: number; bonus_cash: number; bonus_pool_available: number;
   registration_fees: number; opening_cash: number; cash_at_hand: number; active_members: number; all_members: number;
   by_month: MonthRow[];
 }
@@ -39,7 +39,7 @@ export default function SummaryPage() {
         title="Group summary"
         subtitle={
           s.latest_period
-            ? <>Current month: <strong>{monthLabel(s.latest_period.year, s.latest_period.month)}</strong>. All amounts in {cur}. Advance interest {formatPercent(settings.advance_rate_bps)}% per month</>
+            ? <>Current month: <strong>{monthLabel(s.latest_period.year, s.latest_period.month)}</strong>. All amounts in {cur}. Advance interest {formatPercent(settings.advance_rate_bps)}%, cut when the advance is taken</>
             : "The books have not been started yet."
         }
         actions={<button className="btn btn-secondary no-print" onClick={() => { track("printed"); window.print(); }}>Print</button>}
@@ -50,13 +50,17 @@ export default function SummaryPage() {
 
       <section className="stats">
         <Stat strong label="Total savings" cents={s.total_savings} hint="All members, incl. bonuses credited" />
-        <Stat strong label="Total interest" cents={s.total_interest} hint={s.opening_interest ? `Incl. ${cur} ${fmt(s.opening_interest)} brought in` : "From advances, goes to the group"} />
+        <Stat strong label="Total interest" cents={s.total_interest} hint={[
+          s.opening_interest ? `Incl. ${cur} ${fmt(s.opening_interest)} brought in` : "From advances, goes to the group",
+          s.transaction_costs ? `after ${fmt(s.transaction_costs)} transaction costs` : "",
+        ].filter(Boolean).join(", ")} />
         <Stat strong label="Advances outstanding" cents={s.advances_outstanding} />
         <Stat strong label="Merry go round paid out" cents={s.mgr_total} />
-        <Stat label="Cash at hand" cents={s.cash_at_hand} hint="Opening cash + fees + collections - issues - cash bonuses" />
+        <Stat label="Cash at hand" cents={s.cash_at_hand} hint="Opening cash + fees + collections - merry go round - advances handed over - transaction costs - cash bonuses" />
         <Stat label="Interest pool for bonus" cents={s.bonus_pool_available} hint="Interest from rolled months, less bonuses" />
         <Stat label="Bonuses issued" cents={s.bonus_total} />
         <Stat label="Registration fees" cents={s.registration_fees} />
+        <Stat label="Transaction costs" cents={s.transaction_costs} hint="Paid out of the interest" />
         <Stat label="Unpaid interest (arrears)" cents={s.interest_arrears} hint="Carried forward to next month" />
         <Stat label="Total collected" cents={s.total_collected} hint="All cash brought by members" />
         <Stat label="Total advances issued" cents={s.advances_issued} hint={`Repaid ${fmt(s.advances_repaid)}`} />
@@ -72,7 +76,7 @@ export default function SummaryPage() {
                 <tr>
                   <th>Month</th><th>Status</th><th className="num">Members</th><th className="num">Collected</th>
                   <th className="num">Interest</th><th className="num">Savings added</th><th className="num">Advances issued</th>
-                  <th className="num">Advances repaid</th><th>Merry go round to</th><th className="num">Merry go round</th>
+                  <th className="num">Advances repaid</th><th className="num">Transaction costs</th><th>Merry go round to</th><th className="num">Merry go round</th>
                 </tr>
               </thead>
               <tbody>
@@ -86,6 +90,7 @@ export default function SummaryPage() {
                     <td className="num"><Money cents={m.savings} /></td>
                     <td className="num"><Money cents={m.advances_issued} /></td>
                     <td className="num"><Money cents={m.advances_repaid} /></td>
+                    <td className="num"><Money cents={m.transaction_costs} /></td>
                     <td>{m.mgr_recipient ?? "-"}</td>
                     <td className="num"><Money cents={m.mgr_total} /></td>
                   </tr>

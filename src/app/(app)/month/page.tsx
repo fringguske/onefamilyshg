@@ -4,9 +4,9 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { MoneyInput } from "@/components/MoneyInput";
 import { Alert, Loading, Modal, Money, PageHeader } from "@/components/ui";
 import { api, readStore, track, useUnsavedWarning, writeStore } from "@/lib/client";
-import { computeEntry, interestDue, MANUAL_FIELDS, type ManualInputs, type Openings } from "@/lib/ledger";
+import { autoSplit, computeEntry, expectedAmount, interestDue, MANUAL_FIELDS, type Computed, type ManualInputs, type Openings, type Terms } from "@/lib/ledger";
 import { rotation } from "@/lib/mgr";
-import { centsToInput, formatMoney, parseMoney } from "@/lib/money";
+import { centsToInput, formatMoney, formatPercent, parseMoney } from "@/lib/money";
 import { MONTH_NAMES, monthLabel, nextMonth } from "@/lib/period";
 import type { EntryRow, Period } from "@/lib/types";
 
@@ -100,6 +100,15 @@ function MonthPage() {
   const dirtyIds = Object.keys(drafts);
   useUnsavedWarning(dirtyIds.length > 0);
 
+  /** The rate and merry go round amount a member's record is worked out with. */
+  const terms = useCallback(
+    (row: EntryRow): Terms => ({
+      advance_rate_bps: data?.rates?.advance_rate_bps ?? 0,
+      mgr_due: row.member_id === data?.period?.mgr_member_id ? 0 : data?.mgr_contribution_cents ?? 0,
+    }),
+    [data],
+  );
+
   /** Combines the stored record with any draft into what the row shows now. */
   const view = useCallback(
     (row: EntryRow) => {
@@ -118,11 +127,16 @@ function MonthPage() {
         advance_interest_bf: row.advance_interest_bf, advance_interest_charged: row.advance_interest_charged,
         bonus_credit: row.bonus_credit,
       };
-      const { computed, errors } = computeEntry(openings, inputs);
+      const t = terms(row);
+      const result = computeEntry(openings, inputs, t);
+      const errors = result.errors;
+      // saved figures are shown as saved; only typing is worked out again
+      const computed: Computed = d ? result.computed : row;
       if (invalid) errors.unshift("One of the amounts is not a valid number (use digits, up to 2 decimals).");
-      return { text, inputs, openings, computed, errors, draft: d, conflict: !!d && d.base !== row.version };
+      const expected = expectedAmount(openings, t.mgr_due);
+      return { text, inputs, openings, computed, errors, expected, draft: d, conflict: !!d && d.base !== row.version };
     },
-    [drafts],
+    [drafts, terms],
   );
 
   function edit(row: EntryRow, field: ManualKey, value: string) {
@@ -134,6 +148,14 @@ function MonthPage() {
       };
       const next: Draft = { ...cur, f: { ...cur.f } };
       next.f[field] = value;
+      // a new amount brought fills the advance repayment and merry go round again;
+      // the chairman can still change them afterwards
+      const paid = parseMoney(value);
+      if (field === "amount_paid" && paid !== null) {
+        const split = autoSplit(row, paid, terms(row).mgr_due);
+        next.f.advance_repaid = centsToInput(split.advance_repaid);
+        next.f.mgr_contribution = centsToInput(split.mgr_contribution);
+      }
       // a draft that matches the saved record is not a draft any more
       const same = MANUAL_FIELDS.every((k) => parseMoney(next.f[k]) === row[k]);
       const copy = { ...all };
@@ -198,11 +220,11 @@ function MonthPage() {
   }, [rows, filter]);
 
   const totals = useMemo(() => {
-    const t = { sb: 0, ab: 0, due: 0, paid: 0, ar: 0, mgr: 0, sav: 0, ai: 0, sc: 0, ac: 0 };
+    const t = { sb: 0, ab: 0, due: 0, exp: 0, paid: 0, ar: 0, mgr: 0, sav: 0, ai: 0, sc: 0, ac: 0 };
     for (const r of rows) {
       const v = view(r);
       t.sb += v.openings.savings_open; t.ab += v.openings.advance_bal_open;
-      t.due += interestDue(v.openings); t.paid += v.inputs.amount_paid; t.ar += v.inputs.advance_repaid;
+      t.due += interestDue(v.openings); t.exp += v.expected; t.paid += v.inputs.amount_paid; t.ar += v.inputs.advance_repaid;
       t.mgr += v.inputs.mgr_contribution; t.sav += v.computed.savings_contribution;
       t.ai += v.inputs.advance_issued; t.sc += v.computed.savings_close; t.ac += v.computed.advance_bal_close;
     }
@@ -222,10 +244,11 @@ function MonthPage() {
   const recipient = period.mgr_member_id;
   const standard = data.mgr_contribution_cents ?? 0;
   const contributors = rows.filter((r) => r.member.status === "active" && r.member_id !== recipient);
-  const toFill = contributors.filter((r) => view(r).inputs.mgr_contribution === 0);
 
-  function fillStandard() {
-    for (const r of toFill) edit(r, "mgr_contribution", centsToInput(standard));
+  async function saveCost(cents: number) {
+    await api("/api/periods", { method: "PUT", body: { period_id: period!.id, transaction_cost: cents } });
+    setData((d) => (d?.period ? { ...d, period: { ...d.period, transaction_cost: cents } } : d));
+    setPeriods((ps) => ps && ps.map((p) => (p.id === period!.id ? { ...p, transaction_cost: cents } : p)));
   }
 
   async function chooseRecipient(memberId: string | null) {
@@ -287,8 +310,6 @@ function MonthPage() {
         editable={editable}
         collected={totals.mgr}
         expected={standard * contributors.length}
-        canFill={editable && standard > 0 && toFill.length > 0}
-        onFill={fillStandard}
         onChoose={chooseRecipient}
       />
 
@@ -303,13 +324,16 @@ function MonthPage() {
         )}
       </div>
 
+      <TransactionCost key={period.id} saved={period.transaction_cost} editable={editable} onSave={saveCost} />
+
       <div className="table-wrap sheet">
         <table>
           <thead>
             <tr>
               <th rowSpan={2}>Member</th>
               <th className="group" colSpan={2}>Brought forward (auto)</th>
-              <th className="group" colSpan={4}>Fed this month</th>
+              <th className="group" colSpan={2}>Due (auto)</th>
+              <th className="group" colSpan={3}>Fed this month</th>
               <th className="group" colSpan={1}>Auto</th>
               <th className="group" colSpan={1}>Issued this month</th>
               <th className="group" colSpan={2}>Carried forward (auto)</th>
@@ -317,7 +341,7 @@ function MonthPage() {
             </tr>
             <tr>
               <th className="num">Savings</th><th className="num">Advance</th>
-              <th className="num">Interest due</th><th className="num">Amount brought</th><th className="num">Advance repaid</th><th className="num">Merry go round</th>
+              <th className="num">Interest due</th><th className="num">Expected</th><th className="num">Amount brought</th><th className="num">Advance repaid</th><th className="num">Merry go round</th>
               <th className="num">Savings added</th>
               <th className="num">New advance</th>
               <th className="num">Savings</th><th className="num">Advance</th>
@@ -367,6 +391,7 @@ function MonthPage() {
                   {bf("savings_open", "Savings b/f")}
                   {bf("advance_bal_open", "Advance b/f")}
                   <td className="num auto" data-label="Interest due"><Money cents={due} dashZero /></td>
+                  <td className="num auto" data-label="Expected"><Money cents={v.expected} dashZero /></td>
                   {money("amount_paid", "Amount brought")}
                   {money("advance_repaid", "Advance repaid")}
                   {takes ? (
@@ -375,7 +400,14 @@ function MonthPage() {
                     </td>
                   ) : money("mgr_contribution", "Merry go round")}
                   <td className="num auto" data-label="Savings added"><Money cents={v.computed.savings_contribution} dashZero /></td>
-                  {money("advance_issued", "New advance")}
+                  <td className="num" data-label="New advance">
+                    {editable ? (
+                      <MoneyInput label={`New advance, ${row.member.full_name}`} value={v.text.advance_issued} onChange={(x) => edit(row, "advance_issued", x)} />
+                    ) : (
+                      <Money cents={row.advance_issued} dashZero />
+                    )}
+                    <AdvanceCut issued={v.inputs.advance_issued} cut={v.computed.advance_interest_deducted} />
+                  </td>
                   <td className="num auto" data-label="Savings c/f"><Money cents={v.computed.savings_close} /></td>
                   <td className="num auto" data-label="Advance c/f"><Money cents={v.computed.advance_bal_close} /></td>
                   {editable && (
@@ -395,7 +427,7 @@ function MonthPage() {
                 </tr>
               );
             })}
-            {!shown.length && <tr><td colSpan={12} className="muted">No members in this month. Register members first.</td></tr>}
+            {!shown.length && <tr><td colSpan={13} className="muted">No members in this month. Register members first.</td></tr>}
           </tbody>
           {rows.length > 0 && (
             <tfoot>
@@ -404,6 +436,7 @@ function MonthPage() {
                 <td className="num"><Money cents={totals.sb} /></td>
                 <td className="num"><Money cents={totals.ab} /></td>
                 <td className="num"><Money cents={totals.due} /></td>
+                <td className="num"><Money cents={totals.exp} /></td>
                 <td className="num"><Money cents={totals.paid} /></td>
                 <td className="num"><Money cents={totals.ar} /></td>
                 <td className="num"><Money cents={totals.mgr} /></td>
@@ -422,6 +455,7 @@ function MonthPage() {
         <RollDialog
           period={period}
           rows={rows}
+          rate={data.rates?.advance_rate_bps ?? 0}
           unsaved={dirtyIds.length}
           onClose={() => setRollOpen(false)}
           onRolled={() => {
@@ -438,8 +472,8 @@ function MonthPage() {
   );
 }
 
-function RollDialog({ period, rows, unsaved, onClose, onRolled }: {
-  period: Period; rows: EntryRow[]; unsaved: number; onClose: () => void; onRolled: () => void;
+function RollDialog({ period, rows, rate, unsaved, onClose, onRolled }: {
+  period: Period; rows: EntryRow[]; rate: number; unsaved: number; onClose: () => void; onRolled: () => void;
 }) {
   const [checked, setChecked] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -466,7 +500,7 @@ function RollDialog({ period, rows, unsaved, onClose, onRolled }: {
       <ul>
         <li><strong>Lock {label}</strong>. Its records can no longer be changed.</li>
         <li>Carry every member&apos;s savings and advance balance into {monthLabel(nm.year, nm.month)}.</li>
-        <li>Work out next month&apos;s interest on the advances carried forward.</li>
+        <li>Charge {formatPercent(rate)}% interest on any advance that was due in {label} and is still unpaid.</li>
         <li>Leave the amounts to be fed for {monthLabel(nm.year, nm.month)} empty.</li>
       </ul>
       {error && <Alert kind="error">{error}</Alert>}
@@ -494,9 +528,9 @@ function RollDialog({ period, rows, unsaved, onClose, onRolled }: {
   );
 }
 
-function MgrBar({ period, periods, rows, editable, collected, expected, canFill, onFill, onChoose }: {
+function MgrBar({ period, periods, rows, editable, collected, expected, onChoose }: {
   period: Period; periods: Period[]; rows: EntryRow[]; editable: boolean; collected: number; expected: number;
-  canFill: boolean; onFill: () => void; onChoose: (memberId: string | null) => Promise<void>;
+  onChoose: (memberId: string | null) => Promise<void>;
 }) {
   const [busy, setBusy] = useState(false);
   const earlier = periods
@@ -538,10 +572,55 @@ function MgrBar({ period, periods, rows, editable, collected, expected, canFill,
           Collected <strong><Money cents={collected} /></strong>
           {expected > 0 && <> of <Money cents={expected} /></>}
         </span>
-        {canFill && <button className="btn btn-small btn-secondary no-print" onClick={onFill}>Fill standard amount</button>}
       </div>
     </div>
   );
+}
+
+/** One amount for the whole month, paid by the group out of the interest pool. */
+function TransactionCost({ saved, editable, onSave }: { saved: number; editable: boolean; onSave: (cents: number) => Promise<void> }) {
+  const [text, setText] = useState(centsToInput(saved));
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ kind: "error" | "success"; text: string } | null>(null);
+  const cents = parseMoney(text);
+  const changed = cents !== saved;
+
+  async function save() {
+    if (cents === null) return;
+    setBusy(true);
+    setMsg(null);
+    try {
+      await onSave(cents);
+      setMsg({ kind: "success", text: "Saved" });
+    } catch (e) {
+      setMsg({ kind: "error", text: (e as Error).message });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="row cost-field">
+      <label htmlFor="transaction-cost"><strong>Transaction cost</strong></label>
+      {editable ? (
+        <>
+          <MoneyInput id="transaction-cost" value={text} onChange={(v) => { setText(v); setMsg(null); }} />
+          <button className="btn btn-small no-print" disabled={busy || !changed || cents === null} onClick={save}>{busy ? "Saving" : "Save"}</button>
+          {msg && !changed && msg.kind === "success" && <span className="badge badge-saved">Saved</span>}
+          {msg?.kind === "error" && <span className="row-errors">{msg.text}</span>}
+        </>
+      ) : (
+        <Money cents={saved} />
+      )}
+      <span className="small muted">Taken from the interest pool</span>
+    </div>
+  );
+}
+
+/** Under a new advance: the interest cut from it and the cash the member is handed. */
+function AdvanceCut({ issued, cut }: { issued: number; cut: number }) {
+  if (!issued || !cut) return null;
+  return <div className="cell-hint">Interest {formatMoney(cut)} cut, hand over {formatMoney(issued - cut)}</div>;
 }
 
 function StartBooks({ onStarted }: { onStarted: () => void }) {
@@ -583,16 +662,20 @@ function StartBooks({ onStarted }: { onStarted: () => void }) {
   );
 }
 
-function exportCsv(label: string, rows: EntryRow[], view: (r: EntryRow) => { openings: Openings; inputs: ManualInputs; computed: ReturnType<typeof computeEntry>["computed"] }) {
-  const head = ["No", "Member", "Savings b/f", "Advance b/f", "Interest due", "Amount brought", "Advance repaid", "Merry go round",
-    "Interest paid", "Savings added", "Bonus to savings", "New advance", "Savings c/f", "Advance c/f"];
+function exportCsv(label: string, rows: EntryRow[], view: (r: EntryRow) => {
+  openings: Openings; inputs: ManualInputs; computed: Computed; expected: number;
+}) {
+  const head = ["No", "Member", "Savings b/f", "Advance b/f", "Interest due", "Expected", "Amount brought", "Advance repaid", "Merry go round",
+    "Interest paid", "Savings added", "Bonus to savings", "New advance", "Interest cut", "Cash handed over", "Savings c/f", "Advance c/f"];
   const m = (c: number) => formatMoney(c).replace(/,/g, "");
   const lines = rows.map((r) => {
     const v = view(r);
+    const cut = v.computed.advance_interest_deducted;
     return [r.member.member_no, `"${r.member.full_name.replace(/"/g, '""')}"`, m(v.openings.savings_open),
-      m(v.openings.advance_bal_open), m(interestDue(v.openings)), m(v.inputs.amount_paid), m(v.inputs.advance_repaid),
+      m(v.openings.advance_bal_open), m(interestDue(v.openings)), m(v.expected), m(v.inputs.amount_paid), m(v.inputs.advance_repaid),
       m(v.inputs.mgr_contribution), m(v.computed.advance_interest_paid), m(v.computed.savings_contribution),
-      m(v.openings.bonus_credit), m(v.inputs.advance_issued), m(v.computed.savings_close), m(v.computed.advance_bal_close)].join(",");
+      m(v.openings.bonus_credit), m(v.inputs.advance_issued), m(cut), m(v.inputs.advance_issued - cut),
+      m(v.computed.savings_close), m(v.computed.advance_bal_close)].join(",");
   });
   const blob = new Blob([[head.join(","), ...lines].join("\n")], { type: "text/csv" });
   const a = document.createElement("a");

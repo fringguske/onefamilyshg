@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/supabase";
 import { computeEntry, MANUAL_FIELDS, type ManualInputs, type Openings } from "@/lib/ledger";
+import { entryTerms } from "@/lib/entries";
 import { isCents } from "@/lib/money";
 import { audit, check, HttpError, readJson, requireUser, route, text } from "@/lib/server";
 
@@ -44,7 +45,7 @@ export const PUT = route(async (req: Request, { params }: Ctx) => {
     bonus_credit: entry.bonus_credit,
   };
 
-  const { computed, errors } = computeEntry(openings, inputs);
+  const { computed, errors } = computeEntry(openings, inputs, await entryTerms(entry.period, entry.member_id));
   if (errors.length) throw new HttpError(422, errors.join(" "));
 
   const saved = check(

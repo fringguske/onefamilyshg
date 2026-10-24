@@ -57,7 +57,7 @@ function GroupSettings({ settings, onSaved }: { settings: Settings; onSaved: (s:
     try {
       const { settings: s } = await api<{ settings: Settings }>("/api/settings", { method: "PUT", body });
       onSaved(s);
-      setMsg({ kind: "success", text: "Settings saved. New interest rates apply from the next roll." });
+      setMsg({ kind: "success", text: "Settings saved. A new interest rate applies to advances saved from now on, and to late interest from the next roll." });
     } catch (err) {
       setMsg({ kind: "error", text: (err as Error).message });
     } finally {
@@ -73,8 +73,9 @@ function GroupSettings({ settings, onSaved }: { settings: Settings; onSaved: (s:
         <div className="field"><label>Group name</label><input value={f.group_name} onChange={(e) => set("group_name")(e.target.value)} /></div>
         <div className="field"><label>Currency</label><input value={f.currency} onChange={(e) => set("currency")(e.target.value)} /></div>
         <div className="field">
-          <label>Advance interest (% per month)</label>
+          <label>Advance interest (%)</label>
           <input inputMode="decimal" value={f.advance_rate} onChange={(e) => set("advance_rate")(e.target.value)} className={parsePercent(f.advance_rate) === null ? "invalid" : ""} />
+          <div className="hint">Cut from each advance when it is taken, and charged again for every month it is late.</div>
         </div>
         <div className="field"><label>Standard registration fee</label><MoneyInput value={f.fee} onChange={set("fee")} /></div>
         <div className="field"><label>Merry go round contribution per member</label><MoneyInput value={f.mgr} onChange={set("mgr")} /></div>

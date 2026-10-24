@@ -1,6 +1,6 @@
 import "server-only";
 import { db } from "./supabase";
-import { computeEntry, interestOn, type Openings } from "./ledger";
+import { computeEntry, type Openings, type Terms } from "./ledger";
 import { check, getOpenPeriod, getSettings } from "./server";
 
 export interface OpeningBalances {
@@ -10,19 +10,24 @@ export interface OpeningBalances {
 
 const ZERO_INPUTS = { amount_paid: 0, advance_repaid: 0, advance_issued: 0, mgr_contribution: 0 };
 
-/** Balances b/f for a member's first month: their opening balances, with this month's interest on them. */
-export function firstMonthOpenings(
-  m: OpeningBalances,
-  rates: { advance_rate_bps: number },
-  bonus_credit = 0,
-): Openings {
+/**
+ * Balances b/f for a member's first month: their opening balances. The interest
+ * on an opening advance was cut when it was taken, so it is simply due this month.
+ */
+export function firstMonthOpenings(m: OpeningBalances, bonus_credit = 0): Openings {
   return {
     savings_open: m.opening_savings_cents,
     advance_bal_open: m.opening_advance_cents,
     advance_interest_bf: 0,
-    advance_interest_charged: interestOn(m.opening_advance_cents, rates.advance_rate_bps),
+    advance_interest_charged: 0,
     bonus_credit,
   };
+}
+
+/** The terms a member's record in a month is worked out with. */
+export async function entryTerms(period: { mgr_member_id: string | null }, memberId: string): Promise<Terms> {
+  const s = await getSettings();
+  return { advance_rate_bps: s.advance_rate_bps, mgr_due: period.mgr_member_id === memberId ? 0 : s.mgr_contribution_cents };
 }
 
 /**
@@ -48,13 +53,13 @@ export async function ensureOpenEntries(actor: string, onlyMemberIds?: string[])
   const rows = (members as ({ id: string } & OpeningBalances)[])
     .filter((m) => !have.has(m.id))
     .map((m) => {
-      const openings = firstMonthOpenings(hadMonths.has(m.id) ? zero : m, settings);
+      const openings = firstMonthOpenings(hadMonths.has(m.id) ? zero : m);
       const { bonus_credit: _none, ...openingColumns } = openings;
       return {
         period_id: open.id,
         member_id: m.id,
         ...openingColumns,
-        ...computeEntry(openings, ZERO_INPUTS).computed,
+        ...computeEntry(openings, ZERO_INPUTS, { advance_rate_bps: settings.advance_rate_bps, mgr_due: 0 }).computed,
         updated_by: actor,
       };
     });

@@ -10,7 +10,7 @@ export const GET = route(async () => {
   return NextResponse.json({ settings: await getSettings(), me: { name: s.name, role: s.role, username: s.username } });
 });
 
-/** Chairman or administrator. New interest rates apply from the next roll. */
+/** Chairman or administrator. A new interest rate applies to advances saved from now on and to late interest from the next roll. */
 export const PUT = route(async (req: Request) => {
   const s = await requireUser();
   const body = await readJson(req);

@@ -149,6 +149,9 @@ a { color: var(--steel); }
 label { display: block; font-weight: 600; font-size: 0.88rem; margin-bottom: 4px; }
 .field { margin-bottom: 14px; }
 .field .hint { font-weight: 400; color: var(--muted); font-size: 0.8rem; margin-top: 3px; }
+.cost-field { gap: 8px; }
+.cost-field .money-input { width: 140px; }
+.cell-hint { color: var(--muted); font-size: 0.75rem; margin-top: 3px; white-space: nowrap; }
 .grid-form { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 0 16px; }
 input, select, textarea {
   width: 100%;

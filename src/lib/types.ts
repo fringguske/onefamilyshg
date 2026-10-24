@@ -10,6 +10,7 @@ export interface Period {
   closed_at: string | null;
   closed_by: string | null;
   mgr_member_id: string | null;
+  transaction_cost: number;
 }
 
 export interface EntryRow extends Openings, ManualInputs, Computed {

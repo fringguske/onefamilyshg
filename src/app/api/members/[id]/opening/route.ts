@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/supabase";
-import { firstMonthOpenings, type OpeningBalances } from "@/lib/entries";
+import { entryTerms, firstMonthOpenings, type OpeningBalances } from "@/lib/entries";
 import { computeEntry, MANUAL_FIELDS, type ManualInputs } from "@/lib/ledger";
 import { OPENING_COLUMNS } from "@/lib/members";
 import { isCents } from "@/lib/money";
-import { audit, check, getOpenPeriod, getSettings, HttpError, readJson, requireUser, route } from "@/lib/server";
+import { audit, check, getOpenPeriod, HttpError, readJson, requireUser, route } from "@/lib/server";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -39,9 +39,9 @@ export const PUT = route(async (req: Request, { params }: Ctx) => {
     : null;
   let entryUpdate: Record<string, unknown> | null = null;
   if (entry) {
-    const openings = firstMonthOpenings(next, await getSettings(), entry.bonus_credit);
+    const openings = firstMonthOpenings(next, entry.bonus_credit);
     const inputs = Object.fromEntries(MANUAL_FIELDS.map((k) => [k, entry[k]])) as unknown as ManualInputs;
-    const { computed, errors } = computeEntry(openings, inputs);
+    const { computed, errors } = computeEntry(openings, inputs, await entryTerms(open!, id));
     if (errors.length) {
       throw new HttpError(422, `With these balances this month's figures no longer work: ${errors.join(" ")} Correct the month's figures first.`);
     }
